@@ -31,7 +31,7 @@ class DailyUpdater:
 
     def __init__(self):
         """Initialize the daily updater with all components"""
-        self.logger = self.setup_logging()
+        self.logger = setup_logging()
         
         # Initialize core components
         self.file_manager = FileManager()
