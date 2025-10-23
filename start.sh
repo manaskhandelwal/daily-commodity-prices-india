@@ -38,7 +38,7 @@ else
 fi
 
 echo "=== Container initialization complete ==="
-echo "Cron job will run daily at 11:59 PM"
+echo "Cron jobs will run daily at 7:00 PM and 11:59 PM"
 echo "Monitoring logs..."
 
 # Keep container running and monitor logs

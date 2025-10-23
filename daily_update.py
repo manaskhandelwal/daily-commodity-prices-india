@@ -21,7 +21,7 @@ def setup_logging():
     """Setup logging configuration"""
     logging.basicConfig(
         level=getattr(logging, LOG_LEVEL.upper()),
-        format='%(asctime)s - %(levelname)s - %(message)s',
+        format='%(message)s',
         handlers=[
             logging.StreamHandler(sys.stdout)
         ]
@@ -35,25 +35,27 @@ class DailyUpdater:
     def __init__(self):
         """Initialize the daily updater with all components"""
         self.logger = setup_logging()
-        
+
         # Initialize core components
         self.file_manager = FileManager()
         self.state_manager = StateManager()
         self.seeder = DataSeeder()
         self.kaggle_integration = KaggleIntegration()
-        
+
         # Check if seeding is needed (for Kaggle dataset download)
         seeding_needed = self.seeder.is_seeding_needed()
-        
+
         # For seeding mode, we only validate basic config (no API_KEY required yet)
         if seeding_needed:
             try:
                 validate_config(seeding_mode=True)
-                self.logger.info("Seeding mode: API_KEY will be validated before API operations")
+                self.logger.info(
+                    "Seeding mode: API_KEY will be validated before API operations")
             except ValueError as e:
-                self.logger.error(f"Basic configuration validation failed: {e}")
+                self.logger.error(
+                    f"Basic configuration validation failed: {e}")
                 raise
-        
+
         # Initialize data_fetcher as None initially (will be created when needed)
         self.data_fetcher = None
 
@@ -87,8 +89,6 @@ class DailyUpdater:
                 f"Error checking environment initialization: {e}")
             return False
 
-
-
     def run(self):
         """Main execution method with comprehensive deployment strategy"""
         try:
@@ -98,17 +98,19 @@ class DailyUpdater:
 
             # STEP 1: Ensure we have the Kaggle dataset locally (download if needed)
             if self.seeder.is_seeding_needed():
-                self.logger.info("No local dataset found. Downloading from Kaggle...")
-                
+                self.logger.info(
+                    "No local dataset found. Downloading from Kaggle...")
+
                 if not self.seeder.seed_data():
                     self.logger.error("Failed to download dataset from Kaggle")
                     return False
-                
+
                 self.logger.info("Successfully downloaded dataset from Kaggle")
 
             # STEP 2: Initialize API data fetcher (required for all operations)
             try:
-                validate_config(seeding_mode=False)  # Require API_KEY for all operations
+                # Require API_KEY for all operations
+                validate_config(seeding_mode=False)
                 if not self.data_fetcher:
                     self.data_fetcher = DataFetcher()
             except ValueError as e:
@@ -137,61 +139,74 @@ class DailyUpdater:
             processed_dates = state.get('processed_dates', [])
 
             # STEP 6: Check if we have new data (but always proceed on first deployment)
-            is_new_data = self.data_fetcher.is_new_data(processed_data, last_hash, processed_dates)
+            is_new_data = self.data_fetcher.is_new_data(
+                processed_data, last_hash, processed_dates)
             is_first_deployment = not state.get('last_successful_upload')
-            
+
             if not is_new_data and not is_first_deployment:
-                self.logger.info("No new data to process and not first deployment")
+                self.logger.info(
+                    "No new data to process and not first deployment")
                 return True
 
             # STEP 7: Merge API data with existing Kaggle dataset and save
             if is_first_deployment:
-                self.logger.info("First deployment: Merging API data with downloaded Kaggle dataset...")
+                self.logger.info(
+                    "First deployment: Merging API data with downloaded Kaggle dataset...")
             else:
-                self.logger.info("Daily update: Merging new API data with existing dataset...")
-            
+                self.logger.info(
+                    "Daily update: Merging new API data with existing dataset...")
+
             # Monitor memory usage before merge
             process = psutil.Process(os.getpid())
             memory_before = process.memory_info().rss / 1024 / 1024  # MB
-            self.logger.info(f"Memory usage before merge: {memory_before:.1f} MB")
-            
+            self.logger.info(
+                f"Memory usage before merge: {memory_before:.1f} MB")
+
             # Perform merge with timeout protection
             merge_success = False
             try:
-                merge_success = self.file_manager.merge_and_save_data(processed_data)
-                
+                merge_success = self.file_manager.merge_and_save_data(
+                    processed_data)
+
                 # Monitor memory usage after merge
                 memory_after = process.memory_info().rss / 1024 / 1024  # MB
-                self.logger.info(f"Memory usage after merge: {memory_after:.1f} MB")
-                
+                self.logger.info(
+                    f"Memory usage after merge: {memory_after:.1f} MB")
+
             except Exception as e:
                 self.logger.error(f"Error during merge operation: {e}")
                 merge_success = False
-                
+
             if merge_success:
                 # STEP 8: Update state with new data
-                new_hash = self.data_fetcher.calculate_data_hash(processed_data)
+                new_hash = self.data_fetcher.calculate_data_hash(
+                    processed_data)
                 new_dates = processed_data['Arrival_Date'].unique().tolist()
-                
+
                 self.state_manager.update_data_hash(new_hash)
                 self.state_manager.update_processed_dates(new_dates)
-                self.state_manager.increment_records_processed(len(processed_data))
-                
+                self.state_manager.increment_records_processed(
+                    len(processed_data))
+
                 # STEP 9: Upload merged dataset to Kaggle (always upload after merge)
                 self.logger.info("Uploading merged dataset to Kaggle...")
                 upload_success = self.kaggle_integration.upload_dataset()
-                
+
                 if upload_success:
-                    self.logger.info("Merged dataset successfully uploaded to Kaggle")
+                    self.logger.info(
+                        "Merged dataset successfully uploaded to Kaggle")
                     self.state_manager.mark_successful_upload()
-                    
+
                     if is_first_deployment:
-                        self.logger.info("✅ First deployment completed: Kaggle dataset updated with latest API data")
+                        self.logger.info(
+                            "✅ First deployment completed: Kaggle dataset updated with latest API data")
                     else:
-                        self.logger.info("✅ Daily update completed: Kaggle dataset updated with new data")
+                        self.logger.info(
+                            "✅ Daily update completed: Kaggle dataset updated with new data")
                 else:
-                    self.logger.warning("Failed to upload merged dataset to Kaggle, but local merge was successful")
-                
+                    self.logger.warning(
+                        "Failed to upload merged dataset to Kaggle, but local merge was successful")
+
                 self.logger.info("=" * 60)
                 self.logger.info("DEPLOYMENT/UPDATE COMPLETED SUCCESSFULLY")
                 self.logger.info("=" * 60)
@@ -209,7 +224,7 @@ def main():
     """Entry point for the script"""
     setup_logging()
     logger = logging.getLogger(__name__)
-    
+
     try:
         updater = DailyUpdater()
         updater.run()

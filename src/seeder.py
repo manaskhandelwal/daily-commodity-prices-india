@@ -126,7 +126,7 @@ def main():
     # Setup logging
     logging.basicConfig(
         level=logging.INFO,
-        format='%(asctime)s - %(levelname)s - %(message)s',
+        format='%(message)s',  # Only show the message, no timestamp or level
         handlers=[logging.StreamHandler(sys.stdout)]
     )
     
