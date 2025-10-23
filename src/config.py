@@ -5,10 +5,6 @@ Contains all constants, settings, and environment variables
 
 import os
 from pathlib import Path
-# from dotenv import load_dotenv
-
-# Load environment variables
-# load_dotenv()
 
 # API Configuration
 API_BASE_URL = "https://api.data.gov.in/resource/35985678-0d79-46b4-9ed6-6f13308a1d24"

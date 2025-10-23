@@ -49,34 +49,68 @@ def clean_price_field(price):
         return price
 
 
-def format_date_iso(date_str):
-    """Parse date string and return in ISO 8601 format (YYYY-MM-DD)."""
-    try:
-        # Parse DD/MM/YYYY format
-        dt = datetime.strptime(date_str, "%d/%m/%Y")
-        return dt.strftime("%Y-%m-%d")
-    except ValueError:
+def format_date_iso(date_input):
+    """Parse date string or Timestamp and return in ISO 8601 format (YYYY-MM-DD)."""
+    # Handle pandas Timestamp objects
+    if pd.isna(date_input):
+        return date_input
+    
+    # If it's already a pandas Timestamp, format it
+    if isinstance(date_input, pd.Timestamp):
+        return date_input.strftime("%Y-%m-%d")
+    
+    # If it's a string, parse and format it
+    if isinstance(date_input, str):
         try:
-            # Try if already in YYYY-MM-DD format
-            dt = datetime.strptime(date_str, "%Y-%m-%d")
-            return date_str  # Already in correct format
+            # Parse DD/MM/YYYY format
+            dt = datetime.strptime(date_input, "%d/%m/%Y")
+            return dt.strftime("%Y-%m-%d")
         except ValueError:
-            logger.warning(f"Could not parse date: {date_str}")
-            return date_str
+            try:
+                # Try if already in YYYY-MM-DD format
+                dt = datetime.strptime(date_input, "%Y-%m-%d")
+                return date_input  # Already in correct format
+            except ValueError:
+                logger.warning(f"Could not parse date: {date_input}")
+                return date_input
+    
+    # Handle other datetime-like objects
+    try:
+        return pd.to_datetime(date_input).strftime("%Y-%m-%d")
+    except Exception:
+        logger.warning(f"Could not parse date: {date_input}")
+        return str(date_input)
 
 
-def parse_date(date_str):
-    """Parse date string for sorting purposes."""
-    try:
-        # Try YYYY-MM-DD format first
-        return datetime.strptime(date_str, "%Y-%m-%d")
-    except ValueError:
+def parse_date(date_input):
+    """Parse date string or Timestamp for sorting purposes."""
+    # Handle pandas Timestamp objects
+    if pd.isna(date_input):
+        return datetime.min
+    
+    # If it's already a pandas Timestamp, convert to datetime
+    if isinstance(date_input, pd.Timestamp):
+        return date_input.to_pydatetime()
+    
+    # If it's a string, parse it
+    if isinstance(date_input, str):
         try:
-            # Try DD/MM/YYYY format
-            return datetime.strptime(date_str, "%d/%m/%Y")
+            # Try YYYY-MM-DD format first
+            return datetime.strptime(date_input, "%Y-%m-%d")
         except ValueError:
-            logger.warning(f"Could not parse date for sorting: {date_str}")
-            return datetime.min
+            try:
+                # Try DD/MM/YYYY format
+                return datetime.strptime(date_input, "%d/%m/%Y")
+            except ValueError:
+                logger.warning(f"Could not parse date for sorting: {date_input}")
+                return datetime.min
+    
+    # Handle other datetime-like objects
+    try:
+        return pd.to_datetime(date_input).to_pydatetime()
+    except Exception:
+        logger.warning(f"Could not parse date for sorting: {date_input}")
+        return datetime.min
 
 
 class FileManager:
