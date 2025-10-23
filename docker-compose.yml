@@ -15,11 +15,7 @@ services:
       - commodity_data:/app/data/commodity-prices
       # Persistent volume for logs
       - commodity_logs:/app/logs
-      # Optional: Mount local .env file for development
-      - ./.env:/app/.env:ro
     restart: unless-stopped
-    # Use default command (starts cron daemon)
-    # command: /app/start.sh  # This is now the default
 
 volumes:
   commodity_data:
