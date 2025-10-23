@@ -4,8 +4,8 @@ Cleaned, deduplicated, and sorted by date and commodity for analysis.
 
 ### Column Schema
 
-|                | Column                                                                              | Description | Type |
-| -------------- | ----------------------------------------------------------------------------------- | ----------- | ---- | --- |
+| Column         | Description                                                                         | Description |
+| -------------- | ----------------------------------------------------------------------------------- | ----------- |
 | State          | Name of the Indian state where the market is located                                | `province`  |
 | District       | Name of the district within the state where the market is located                   | `city`      |
 | Market         | Name of the specific market (mandi) where the commodity is traded                   | `string`    |
@@ -16,7 +16,7 @@ Cleaned, deduplicated, and sorted by date and commodity for analysis.
 | Min_Price      | Minimum price of the commodity on the given date (in INR per quintal)               | `decimal`   |
 | Max_Price      | Maximum price of the commodity on the given date (in INR per quintal)               | `decimal`   |
 | Modal_Price    | Modal (most frequent) price of the commodity on the given date (in INR per quintal) | `decimal`   |
-| Commodity_Code | Unique code identifier for the commodity                                            | `numeric`   |      |     |
+| Commodity_Code | Unique code identifier for the commodity                                            | `numeric`   |
 
 ---
 
