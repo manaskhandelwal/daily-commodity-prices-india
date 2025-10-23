@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  daily-commodity-updater:
+    build: .
+    container_name: daily-commodity-updater
+    environment:
+      - API_KEY=${API_KEY}
+      - KAGGLE_USERNAME=${KAGGLE_USERNAME}
+      - KAGGLE_KEY=${KAGGLE_KEY}
+      - KAGGLE_DATASET=${KAGGLE_DATASET}
+      - RUN_INITIAL_UPDATE=true  # Set to false to skip initial run
+    volumes:
+      # Persistent volume for data storage
+      - commodity_data:/app/data/commodity-prices
+      # Persistent volume for logs
+      - commodity_logs:/app/logs
+      # Optional: Mount local .env file for development
+      - ./.env:/app/.env:ro
+    restart: unless-stopped
+    # Use default command (starts cron daemon)
+    # command: /app/start.sh  # This is now the default
+
+volumes:
+  commodity_data:
+    driver: local
+  commodity_logs:
+    driver: local
