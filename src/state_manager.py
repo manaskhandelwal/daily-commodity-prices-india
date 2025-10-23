@@ -110,7 +110,7 @@ class StateManager:
             cutoff_str = cutoff_date.strftime('%Y-%m-%d')
 
             processed_dates = [
-                date for date in processed_dates if date >= cutoff_str]
+                date for date in processed_dates if str(date)[:10] >= cutoff_str]
 
             state['processed_dates'] = sorted(list(processed_dates))
 

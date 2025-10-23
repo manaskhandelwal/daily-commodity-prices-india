@@ -184,7 +184,7 @@ class KaggleIntegration:
             # Build upload command
             cmd = [
                 'kaggle', 'datasets', 'version',
-                '--path', str(self.data_dir),
+                '--path', '.',
                 '--message', f"Daily update - {self._get_current_timestamp()}",
                 '--dir-mode', 'zip'
             ]
@@ -195,7 +195,7 @@ class KaggleIntegration:
             result = subprocess.run(
                 cmd,
                 timeout=KAGGLE_UPLOAD_TIMEOUT,
-                cwd=str(self.data_dir.parent)
+                cwd=str(self.data_dir)
             )
 
             if result.returncode == 0:
