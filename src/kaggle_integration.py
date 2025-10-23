@@ -132,36 +132,37 @@ class KaggleIntegration:
             return False
 
     def _copy_metadata_file(self):
-        """Copy dataset-metadata.json from script directory to data directory with dynamic id"""
+        """Generate dataset-metadata.json directly in the data directory with dynamic id"""
         try:
-            # Get the script's parent directory
-            script_dir = Path(__file__).parent.parent
-            source_metadata = script_dir / "dataset-metadata.json"
             dest_metadata = self.data_dir / "dataset-metadata.json"
-
-            if source_metadata.exists():
-                # Read the metadata file
-                with open(source_metadata, 'r', encoding='utf-8') as f:
-                    metadata = json.load(f)
-                
-                # Update the id field with KAGGLE_DATASET environment variable
-                kaggle_dataset = os.getenv('KAGGLE_DATASET')
-                if kaggle_dataset:
-                    metadata['id'] = kaggle_dataset
-                    logger.info(f"Updated dataset id to: {kaggle_dataset}")
-                else:
-                    logger.warning("KAGGLE_DATASET environment variable not set, using default id")
-                
-                # Write the updated metadata to destination
-                with open(dest_metadata, 'w', encoding='utf-8') as f:
-                    json.dump(metadata, f, indent=2, ensure_ascii=False)
-                
-                logger.info(f"Copied and updated dataset-metadata.json to {dest_metadata}")
-            else:
-                logger.warning(
-                    f"dataset-metadata.json not found at {source_metadata}")
+            
+            # Get the dataset ID from environment variable
+            kaggle_dataset = os.getenv('KAGGLE_DATASET')
+            if not kaggle_dataset:
+                logger.warning("KAGGLE_DATASET environment variable not set, using default id")
+                kaggle_dataset = "khandelwalmanas/daily-commodity-prices-india"
+            
+            # Generate the metadata directly
+            metadata = {
+                "id": kaggle_dataset,
+                "title": "Daily Market Prices of Commodity India",
+                "description": "Daily market prices of agricultural commodities across India from **2001-2025**. Contains **75+ million** records covering **374 unique commodities** and **1,504 varieties** from various mandis (wholesale markets). Commodity Like: Vegetables, Fruits, Grains, Spices, etc.\r\n\r\nCleaned, deduplicated, and sorted by date and commodity for analysis.\r\n\r\n### Column Schema\r\n\r\n| Column         | Description                                                                         | Description |\r\n| -------------- | ----------------------------------------------------------------------------------- | ----------- |\r\n| State          | Name of the Indian state where the market is located                                | `province`  |\r\n| District       | Name of the district within the state where the market is located                   | `city`      |\r\n| Market         | Name of the specific market (mandi) where the commodity is traded                   | `string`    |\r\n| Commodity      | Name of the agricultural commodity being traded                                     | `string`    |\r\n| Variety        | Specific variety or type of the commodity                                           | `string`    |\r\n| Grade          | Quality grade of the commodity (e.g., FAQ, Medium, Good)                            | `string`    |\r\n| Arrival_Date   | The date of the price recording, in unambiguous ISO 8601 format (YYYY-MM-DD).       | `datetime`  |\r\n| Min_Price      | Minimum price of the commodity on the given date (in INR per quintal)               | `decimal`   |\r\n| Max_Price      | Maximum price of the commodity on the given date (in INR per quintal)               | `decimal`   |\r\n| Modal_Price    | Modal (most frequent) price of the commodity on the given date (in INR per quintal) | `decimal`   |\r\n| Commodity_Code | Unique code identifier for the commodity                                            | `numeric`   |\r\n\r\n---\r\n\r\nData sourced from the Government of India's Open Data Platform.\r\n\r\n**License:**\r\nGovernment Open Data License - India (GODL-India)\r\nhttps://www.data.gov.in/Godl\r\n",
+                "keywords": ["Agriculture", "Economics", "Food", "Government", "India"],
+                "licenses": [
+                    {
+                        "name": "other"
+                    }
+                ]
+            }
+            
+            # Write the metadata to destination
+            with open(dest_metadata, 'w', encoding='utf-8') as f:
+                json.dump(metadata, f, indent=2, ensure_ascii=False)
+            
+            logger.info(f"Generated dataset-metadata.json with id '{kaggle_dataset}' at {dest_metadata}")
+            
         except Exception as e:
-            logger.warning(f"Could not copy dataset-metadata.json: {e}")
+            logger.error(f"Could not generate dataset-metadata.json: {e}")
 
     def upload_dataset(self) -> bool:
         """
