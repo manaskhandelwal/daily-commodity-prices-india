@@ -180,23 +180,39 @@ class KaggleIntegration:
 
             # Ensure metadata file exists
             self._copy_metadata_file()
+            
+            # Verify metadata file exists in data directory
+            metadata_path = self.data_dir / "dataset-metadata.json"
+            if not metadata_path.exists():
+                logger.error(f"Metadata file not found at {metadata_path} after copying")
+                return False
+            else:
+                logger.info(f"Metadata file confirmed at {metadata_path}")
 
             # Build upload command
             cmd = [
                 'kaggle', 'datasets', 'version',
                 '--path', '.',
-                '--message', f"Daily update - {self._get_current_timestamp()}",
+                '--message', f'"Daily update - {self._get_current_timestamp()}"',
                 '--dir-mode', 'zip'
             ]
 
             logger.info(f"Running upload command: {' '.join(cmd)}")
 
-            # Run command without capturing output so user can see progress
+            # Run command and capture output for debugging
             result = subprocess.run(
                 cmd,
                 timeout=KAGGLE_UPLOAD_TIMEOUT,
-                cwd=str(self.data_dir)
+                cwd=str(self.data_dir),
+                capture_output=True,
+                text=True
             )
+
+            # Log command output for debugging
+            if result.stdout:
+                logger.info(f"Kaggle CLI stdout: {result.stdout}")
+            if result.stderr:
+                logger.error(f"Kaggle CLI stderr: {result.stderr}")
 
             if result.returncode == 0:
                 logger.info("Dataset uploaded successfully to Kaggle")

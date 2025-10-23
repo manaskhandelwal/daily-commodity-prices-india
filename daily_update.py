@@ -218,8 +218,8 @@ class DailyUpdater:
             # Step 6: Update state
             self.logger.info("Step 6: Updating state...")
             new_hash = self.data_fetcher.calculate_data_hash(validated_data)
-            # Arrival_Date is already in string format from data processing
-            new_dates = validated_data['Arrival_Date'].unique().tolist()
+            # Convert Arrival_Date to string format for state management
+            new_dates = [str(date)[:10] for date in validated_data['Arrival_Date'].unique()]
 
             # Update state using state manager
             self.state_manager.update_data_hash(new_hash)
