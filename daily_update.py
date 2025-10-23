@@ -37,6 +37,7 @@ class DailyUpdater:
         self.file_manager = FileManager()
         self.state_manager = StateManager()
         self.seeder = DataSeeder()
+        self.kaggle_integration = KaggleIntegration()
         
         # Check if seeding is needed
         seeding_needed = self.seeder.is_seeding_needed()
