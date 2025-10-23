@@ -7,6 +7,7 @@ from src import (
 )
 import sys
 import logging
+from datetime import datetime
 from pathlib import Path
 
 # Add src directory to Python path
@@ -253,6 +254,9 @@ class DailyUpdater:
 
 def main():
     """Entry point for the script"""
+    setup_logging()
+    logger = logging.getLogger(__name__)
+    
     try:
         updater = DailyUpdater()
         updater.run()
