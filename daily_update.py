@@ -104,6 +104,16 @@ class DailyUpdater:
                     self.logger.error("Failed to seed environment")
                     return False
                 
+                # Upload initial seeded dataset to Kaggle
+                self.logger.info("Uploading initial seeded dataset to Kaggle...")
+                upload_success = self.kaggle_integration.upload_dataset()
+                
+                if upload_success:
+                    self.logger.info("Initial dataset successfully uploaded to Kaggle")
+                    self.state_manager.mark_successful_upload()
+                else:
+                    self.logger.warning("Failed to upload initial dataset to Kaggle, but seeding was successful")
+                
                 # Now initialize data_fetcher after successful seeding
                 try:
                     validate_config(seeding_mode=False)  # Require API_KEY now
@@ -152,6 +162,16 @@ class DailyUpdater:
                 self.state_manager.update_data_hash(new_hash)
                 self.state_manager.update_processed_dates(new_dates)
                 self.state_manager.increment_records_processed(len(processed_data))
+                
+                # Upload updated dataset to Kaggle
+                self.logger.info("Uploading updated dataset to Kaggle...")
+                upload_success = self.kaggle_integration.upload_dataset()
+                
+                if upload_success:
+                    self.logger.info("Dataset successfully uploaded to Kaggle")
+                    self.state_manager.mark_successful_upload()
+                else:
+                    self.logger.warning("Failed to upload dataset to Kaggle, but local update was successful")
                 
                 self.logger.info("=" * 60)
                 self.logger.info("DAILY UPDATE COMPLETED SUCCESSFULLY")
