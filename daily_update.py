@@ -90,13 +90,13 @@ class DailyUpdater:
                 return False
 
             # Download and extract dataset
-            if not self.kaggle_integration.download_and_extract_dataset():
+            if not self.kaggle_integration.download_dataset():
                 self.logger.error("Failed to download and extract dataset")
                 return False
 
             # Copy dataset-metadata.json to data directory
-            if not self.kaggle_integration.copy_metadata_file():
-                self.logger.warning("Failed to copy dataset-metadata.json")
+            self.kaggle_integration._copy_metadata_file()
+            self.logger.info("Metadata file copied")
 
             # Verify the environment is now properly initialized
             if not self.is_environment_initialized():
@@ -106,7 +106,7 @@ class DailyUpdater:
 
             # Initialize state
             self.state_manager.reset_state()
-            self.state_manager.mark_initialization()
+            self.state_manager.mark_initialization_complete()
 
             self.logger.info("Environment seeding completed successfully")
             return True
@@ -218,6 +218,7 @@ class DailyUpdater:
             # Step 6: Update state
             self.logger.info("Step 6: Updating state...")
             new_hash = self.data_fetcher.calculate_data_hash(validated_data)
+            # Arrival_Date is already in string format from data processing
             new_dates = validated_data['Arrival_Date'].unique().tolist()
 
             # Update state using state manager

@@ -115,9 +115,9 @@ class DataFetcher:
                 # Remove unnecessary decimal points (.0) for whole numbers
                 df[col] = df[col].apply(lambda x: int(x) if pd.notna(x) and x == int(x) else x)
 
-        # Format dates
+        # Format dates (Indian format: dd/mm/yyyy)
         df['Arrival_Date'] = pd.to_datetime(
-            df['Arrival_Date']).dt.strftime('%Y-%m-%d')
+            df['Arrival_Date'], dayfirst=True).dt.strftime('%Y-%m-%d')
 
         # Remove duplicates based on key columns
         from .config import KEY_COLUMNS
@@ -170,8 +170,7 @@ class DataFetcher:
             return False
 
         # Check for new dates
-        df['Arrival_Date'] = pd.to_datetime(df['Arrival_Date'])
-        new_dates = df['Arrival_Date'].dt.strftime('%Y-%m-%d').unique()
+        new_dates = df['Arrival_Date'].unique()
         processed_dates_set = set(processed_dates or [])
 
         unprocessed_dates = [

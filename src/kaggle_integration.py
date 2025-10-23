@@ -178,6 +178,9 @@ class KaggleIntegration:
                 logger.error(f"Data directory does not exist: {self.data_dir}")
                 return False
 
+            # Ensure metadata file exists
+            self._copy_metadata_file()
+
             # Build upload command
             cmd = [
                 'kaggle', 'datasets', 'version',
