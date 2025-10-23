@@ -200,14 +200,14 @@ class DailyUpdater:
                     self.logger.error("Dataset upload failed")
                 return
 
-            # Step 4: Handle month rollover if needed
-            self.logger.info("Step 4: Checking for month rollover...")
-            if self.file_manager.check_month_rollover():
-                self.logger.info("Month rollover detected, processing...")
-                if not self.file_manager.handle_month_rollover():
-                    self.logger.error("Failed to handle month rollover")
+            # Step 4: Handle year rollover if needed
+            self.logger.info("Step 4: Checking for year rollover...")
+            if self.file_manager.check_year_rollover():
+                self.logger.info("Year rollover detected, processing...")
+                if not self.file_manager.handle_year_rollover():
+                    self.logger.error("Failed to handle year rollover")
                     return
-                self.logger.info("Month rollover completed successfully")
+                self.logger.info("Year rollover completed successfully")
 
             # Step 5: Merge and save data
             self.logger.info("Step 5: Merging and saving data...")

@@ -190,6 +190,12 @@ class KaggleIntegration:
             else:
                 logger.info(f"Metadata file confirmed at {metadata_path}")
 
+            # Create temporary upload directory excluding internal files
+            upload_dir = self._prepare_upload_directory()
+            if not upload_dir:
+                logger.error("Failed to prepare upload directory")
+                return False
+
             # Build upload command
             cmd = [
                 'kaggle', 'datasets', 'version',
@@ -204,7 +210,7 @@ class KaggleIntegration:
             result = subprocess.run(
                 cmd,
                 timeout=KAGGLE_UPLOAD_TIMEOUT,
-                cwd=str(self.data_dir),
+                cwd=str(upload_dir),
                 capture_output=True,
                 text=True
             )
@@ -230,6 +236,58 @@ class KaggleIntegration:
         except Exception as e:
             logger.error(f"Error uploading dataset: {e}")
             return False
+        finally:
+            # Clean up temporary upload directory if it exists
+            if 'upload_dir' in locals() and upload_dir and upload_dir != self.data_dir:
+                try:
+                    shutil.rmtree(upload_dir)
+                    logger.info(f"Cleaned up temporary upload directory: {upload_dir}")
+                except Exception as e:
+                    logger.warning(f"Failed to clean up temporary directory: {e}")
+
+    def _prepare_upload_directory(self) -> Optional[Path]:
+        """
+        Prepare a temporary directory for upload, excluding internal files
+        
+        Returns:
+            Path to upload directory or None if failed
+        """
+        try:
+            # Files to exclude from upload (internal application files)
+            exclude_files = {
+                'state.json',  # Internal application state
+                '.gitignore',
+                '.DS_Store',
+                'Thumbs.db'
+            }
+            
+            # Create temporary directory
+            temp_dir = tempfile.mkdtemp(prefix='kaggle_upload_')
+            upload_path = Path(temp_dir)
+            
+            logger.info(f"Preparing upload directory at: {upload_path}")
+            
+            # Copy all files except excluded ones
+            copied_files = 0
+            for item in self.data_dir.rglob('*'):
+                if item.is_file() and item.name not in exclude_files:
+                    # Calculate relative path
+                    rel_path = item.relative_to(self.data_dir)
+                    dest_path = upload_path / rel_path
+                    
+                    # Create parent directories if needed
+                    dest_path.parent.mkdir(parents=True, exist_ok=True)
+                    
+                    # Copy file
+                    shutil.copy2(item, dest_path)
+                    copied_files += 1
+                    
+            logger.info(f"Prepared {copied_files} files for upload (excluded: {exclude_files})")
+            return upload_path
+            
+        except Exception as e:
+            logger.error(f"Error preparing upload directory: {e}")
+            return None
 
     def _get_current_timestamp(self) -> str:
         """Get current timestamp for upload message"""

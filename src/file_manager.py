@@ -28,27 +28,26 @@ class FileManager:
         for directory in [self.data_dir, self.csv_dir, self.parquet_dir]:
             directory.mkdir(parents=True, exist_ok=True)
 
-    def get_current_month_files(self) -> Tuple[Path, Path]:
+    def get_current_year_files(self) -> Tuple[Path, Path]:
         """
-        Get the current month's CSV and Parquet file paths
+        Get the current year's CSV and Parquet file paths
 
         Returns:
             Tuple of (csv_path, parquet_path)
         """
-        current_month = datetime.now().strftime('%Y-%m')
-        csv_file = self.csv_dir / f"commodity_prices_{current_month}.csv"
-        parquet_file = self.parquet_dir / \
-            f"commodity_prices_{current_month}.parquet"
+        current_year = datetime.now().strftime('%Y')
+        csv_file = self.csv_dir / f"{current_year}.csv"
+        parquet_file = self.parquet_dir / f"{current_year}.parquet"
         return csv_file, parquet_file
 
-    def load_current_month_data(self) -> Optional[pd.DataFrame]:
+    def load_current_year_data(self) -> Optional[pd.DataFrame]:
         """
-        Load the current month's data from CSV file
+        Load the current year's data from CSV file
 
         Returns:
-            DataFrame with current month's data or None if file doesn't exist
+            DataFrame with current year's data or None if file doesn't exist
         """
-        csv_file, _ = self.get_current_month_files()
+        csv_file, _ = self.get_current_year_files()
 
         if csv_file.exists():
             try:
@@ -56,15 +55,15 @@ class FileManager:
                 logger.info(f"Loaded {len(df)} records from {csv_file.name}")
                 return df
             except Exception as e:
-                logger.error(f"Error loading current month data: {e}")
+                logger.error(f"Error loading current year data: {e}")
                 return None
         else:
-            logger.info(f"Current month file {csv_file.name} does not exist")
+            logger.info(f"Current year file {csv_file.name} does not exist")
             return None
 
     def merge_and_save_data(self, new_data: pd.DataFrame) -> bool:
         """
-        Merge new data with existing current month data and save
+        Merge new data with existing current year data and save
 
         Args:
             new_data: New DataFrame to merge
@@ -73,10 +72,10 @@ class FileManager:
             True if successful, False otherwise
         """
         try:
-            csv_file, parquet_file = self.get_current_month_files()
+            csv_file, parquet_file = self.get_current_year_files()
 
             # Load existing data
-            existing_data = self.load_current_month_data()
+            existing_data = self.load_current_year_data()
 
             if existing_data is not None:
                 # Merge with existing data
@@ -122,88 +121,87 @@ class FileManager:
             logger.error(f"Error merging and saving data: {e}")
             return False
 
-    def check_month_rollover(self) -> bool:
+    def check_year_rollover(self) -> bool:
         """
-        Check if we need to handle month rollover
+        Check if we need to handle year rollover
 
         Returns:
             True if rollover is needed, False otherwise
         """
-        csv_file, _ = self.get_current_month_files()
+        csv_file, _ = self.get_current_year_files()
 
         if not csv_file.exists():
             return False
 
-        # Check if the current month file has data from previous month
+        # Check if the current year file has data from previous year
         try:
             df = pd.read_csv(csv_file)
             df['Arrival_Date'] = pd.to_datetime(df['Arrival_Date'])
 
-            current_month = datetime.now().strftime('%Y-%m')
-            file_months = df['Arrival_Date'].dt.strftime('%Y-%m').unique()
+            current_year = datetime.now().strftime('%Y')
+            file_years = df['Arrival_Date'].dt.strftime('%Y').unique()
 
-            # If file contains data from months other than current, rollover is needed
-            other_months = [
-                month for month in file_months if month != current_month]
+            # If file contains data from years other than current, rollover is needed
+            other_years = [
+                year for year in file_years if year != current_year]
 
-            if other_months:
+            if other_years:
                 logger.info(
-                    f"Month rollover detected. File contains data from: {other_months}")
+                    f"Year rollover detected. File contains data from: {other_years}")
                 return True
 
         except Exception as e:
-            logger.error(f"Error checking month rollover: {e}")
+            logger.error(f"Error checking year rollover: {e}")
 
         return False
 
-    def handle_month_rollover(self) -> bool:
+    def handle_year_rollover(self) -> bool:
         """
-        Handle month rollover by creating separate files for each month
+        Handle year rollover by creating separate files for each year
 
         Returns:
             True if successful, False otherwise
         """
         try:
-            csv_file, parquet_file = self.get_current_month_files()
+            csv_file, parquet_file = self.get_current_year_files()
 
             if not csv_file.exists():
-                logger.info("No current month file to process for rollover")
+                logger.info("No current year file to process for rollover")
                 return True
 
             # Load current data
             df = pd.read_csv(csv_file)
             df['Arrival_Date'] = pd.to_datetime(df['Arrival_Date'])
 
-            # Group by month
-            df['month'] = df['Arrival_Date'].dt.strftime('%Y-%m')
-            months = df['month'].unique()
+            # Group by year
+            df['year'] = df['Arrival_Date'].dt.strftime('%Y')
+            years = df['year'].unique()
 
-            logger.info(f"Processing rollover for months: {months}")
+            logger.info(f"Processing rollover for years: {years}")
 
-            for month in months:
-                month_data = df[df['month'] == month].copy()
-                month_data = month_data.drop('month', axis=1)
-                month_data['Arrival_Date'] = month_data['Arrival_Date'].dt.strftime(
+            for year in years:
+                year_data = df[df['year'] == year].copy()
+                year_data = year_data.drop('year', axis=1)
+                year_data['Arrival_Date'] = year_data['Arrival_Date'].dt.strftime(
                     '%Y-%m-%d')
 
-                # Create month-specific files
-                month_csv = self.csv_dir / f"commodity_prices_{month}.csv"
-                month_parquet = self.parquet_dir / \
-                    f"commodity_prices_{month}.parquet"
+                # Create year-specific files
+                year_csv = self.csv_dir / f"{year}.csv"
+                year_parquet = self.parquet_dir / f"{year}.parquet"
 
                 # Save files
-                month_data.to_csv(month_csv, index=False)
-                month_data.to_parquet(month_parquet, index=False)
+                year_data.to_csv(year_csv, index=False)
+                year_data.to_parquet(year_parquet, index=False)
 
                 logger.info(
-                    f"Created {month_csv.name} with {len(month_data)} records")
+                    f"Created {year_csv.name} with {len(year_data)} records")
                 logger.info(
-                    f"Created {month_parquet.name} with {len(month_data)} records")
+                    f"Created {year_parquet.name} with {len(year_data)} records")
 
             return True
 
         except Exception as e:
-            logger.error(f"Error handling month rollover: {e}")
+            logger.error(f"Error handling year rollover: {e}")
             return False
 
     def get_all_data_files(self) -> dict:
@@ -242,49 +240,48 @@ class FileManager:
 
         return files_info
 
-    def cleanup_old_files(self, keep_months: int = 12) -> bool:
+    def cleanup_old_files(self, keep_years: int = 5) -> bool:
         """
-        Clean up old files beyond the specified number of months
+        Clean up old files beyond the specified number of years
 
         Args:
-            keep_months: Number of recent months to keep
+            keep_years: Number of recent years to keep
 
         Returns:
             True if successful, False otherwise
         """
         try:
-            current_date = datetime.now()
-            cutoff_date = current_date.replace(day=1)
+            current_year = datetime.now().year
+            cutoff_year = current_year - keep_years
 
-            for _ in range(keep_months):
-                if cutoff_date.month == 1:
-                    cutoff_date = cutoff_date.replace(
-                        year=cutoff_date.year - 1, month=12)
-                else:
-                    cutoff_date = cutoff_date.replace(
-                        month=cutoff_date.month - 1)
-
-            cutoff_month = cutoff_date.strftime('%Y-%m')
-            logger.info(f"Cleaning up files older than {cutoff_month}")
+            logger.info(f"Cleaning up files older than {cutoff_year}")
 
             deleted_count = 0
 
             # Clean CSV files
-            for csv_file in self.csv_dir.glob("commodity_prices_*.csv"):
-                file_month = csv_file.stem.replace('commodity_prices_', '')
-                if file_month < cutoff_month:
-                    csv_file.unlink()
-                    deleted_count += 1
-                    logger.info(f"Deleted old CSV file: {csv_file.name}")
+            for csv_file in self.csv_dir.glob("*.csv"):
+                try:
+                    file_year = int(csv_file.stem)
+                    if file_year < cutoff_year:
+                        csv_file.unlink()
+                        deleted_count += 1
+                        logger.info(f"Deleted old CSV file: {csv_file.name}")
+                except ValueError:
+                    # Skip files that don't have year as filename
+                    continue
 
             # Clean Parquet files
-            for parquet_file in self.parquet_dir.glob("commodity_prices_*.parquet"):
-                file_month = parquet_file.stem.replace('commodity_prices_', '')
-                if file_month < cutoff_month:
-                    parquet_file.unlink()
-                    deleted_count += 1
-                    logger.info(
-                        f"Deleted old Parquet file: {parquet_file.name}")
+            for parquet_file in self.parquet_dir.glob("*.parquet"):
+                try:
+                    file_year = int(parquet_file.stem)
+                    if file_year < cutoff_year:
+                        parquet_file.unlink()
+                        deleted_count += 1
+                        logger.info(
+                            f"Deleted old Parquet file: {parquet_file.name}")
+                except ValueError:
+                    # Skip files that don't have year as filename
+                    continue
 
             if deleted_count == 0:
                 logger.info("No old files found to clean up")
