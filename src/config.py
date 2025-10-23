@@ -25,8 +25,11 @@ PARQUET_DIR = DATA_DIR / "parquet"
 KAGGLE_USERNAME = os.getenv('KAGGLE_USERNAME')
 KAGGLE_KEY = os.getenv('KAGGLE_KEY')
 KAGGLE_DATASET = os.getenv('KAGGLE_DATASET')
-KAGGLE_DOWNLOAD_TIMEOUT = 600  # 10 minutes for large dataset download
-KAGGLE_UPLOAD_TIMEOUT = 300   # 5 minutes for upload
+KAGGLE_DOWNLOAD_TIMEOUT = 3600  # 60 minutes for large dataset download (7GB+)
+KAGGLE_UPLOAD_TIMEOUT = 1800   # 30 minutes for upload
+KAGGLE_MAX_RETRIES = 3  # Number of retry attempts for failed downloads
+KAGGLE_RETRY_DELAY = 30  # Delay between retries in seconds
+KAGGLE_TEMP_DIR = os.getenv('KAGGLE_TEMP_DIR')  # Custom temp dir for large downloads (optional)
 
 # Data Processing Configuration
 KEY_COLUMNS = ['Arrival_Date', 'State', 'District',

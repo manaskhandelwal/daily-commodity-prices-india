@@ -6,16 +6,19 @@ Handles Kaggle dataset downloads and uploads with proper error handling
 import json
 import os
 import shutil
-import tempfile
 import subprocess
-import logging
+import tempfile
+import time
+import shutil
+import zipfile
 from pathlib import Path
 from typing import Optional
 
-from .config import (
+from config import (
     KAGGLE_USERNAME, KAGGLE_KEY, KAGGLE_DATASET,
     KAGGLE_DOWNLOAD_TIMEOUT, KAGGLE_UPLOAD_TIMEOUT,
-    DATA_DIR, METADATA_FILE
+    KAGGLE_MAX_RETRIES, KAGGLE_RETRY_DELAY, KAGGLE_TEMP_DIR,
+    DATA_DIR, CSV_DIR, PARQUET_DIR
 )
 
 logger = logging.getLogger(__name__)
@@ -42,26 +45,59 @@ class KaggleIntegration:
 
     def download_dataset(self) -> bool:
         """
-        Download the complete dataset from Kaggle
+        Download the complete dataset from Kaggle with retry logic for large files
 
         Returns:
             True if successful, False otherwise
         """
-        try:
-            logger.info(f"Starting download of Kaggle dataset: {self.dataset}")
+        logger.info(f"Starting download of Kaggle dataset: {self.dataset}")
+        logger.info(f"Timeout set to {KAGGLE_DOWNLOAD_TIMEOUT} seconds for large dataset")
+        
+        for attempt in range(1, KAGGLE_MAX_RETRIES + 1):
+            logger.info(f"Download attempt {attempt}/{KAGGLE_MAX_RETRIES}")
+            
+            # Setup temp directory
+            temp_dir_context = None
+            temp_path = None
+            use_custom_temp = False
+            
+            try:
+                # Use custom temp directory if specified for large downloads
+                if KAGGLE_TEMP_DIR and Path(KAGGLE_TEMP_DIR).exists():
+                    temp_path = Path(KAGGLE_TEMP_DIR) / f"kaggle_download_{int(time.time())}"
+                    temp_path.mkdir(parents=True, exist_ok=True)
+                    use_custom_temp = True
+                    logger.info(f"Using custom temp directory: {temp_path}")
+                else:
+                    temp_dir_context = tempfile.TemporaryDirectory()
+                    temp_path = Path(temp_dir_context.name)
+                    use_custom_temp = False
+                    logger.info(f"Using system temp directory: {temp_path}")
+                
+                # Check available disk space
+                disk_usage = shutil.disk_usage(temp_path)
+                available_gb = disk_usage.free / (1024**3)
+                logger.info(f"Available disk space: {available_gb:.1f} GB")
+                
+                if available_gb < 15:  # Need ~15GB for 7GB download + unzip
+                    logger.error(f"Insufficient disk space. Need at least 15GB, have {available_gb:.1f}GB")
+                    if attempt < KAGGLE_MAX_RETRIES:
+                        logger.info(f"Retrying in {KAGGLE_RETRY_DELAY} seconds...")
+                        time.sleep(KAGGLE_RETRY_DELAY)
+                        continue
+                    else:
+                        return False
 
-            with tempfile.TemporaryDirectory() as temp_dir:
-                temp_path = Path(temp_dir)
-
-                # Download dataset to temporary directory
+                # Download dataset to temporary directory (without unzip first)
                 cmd = [
                     'kaggle', 'datasets', 'download',
                     self.dataset,
-                    '--path', str(temp_path),
-                    '--unzip'
+                    '--path', str(temp_path)
+                    # Remove --unzip to download zip first, then unzip manually
                 ]
 
                 logger.info(f"Running command: {' '.join(cmd)}")
+                logger.info("Note: Large dataset download may take 30-60 minutes...")
 
                 result = subprocess.run(
                     cmd,
@@ -71,22 +107,66 @@ class KaggleIntegration:
                 )
 
                 if result.returncode != 0:
-                    logger.error(f"Kaggle download failed: {result.stderr}")
-                    return False
+                    error_msg = result.stderr.strip()
+                    logger.error(f"Kaggle download failed (attempt {attempt}): {error_msg}")
+                    
+                    # Check if it's a retryable error
+                    if attempt < KAGGLE_MAX_RETRIES and self._is_retryable_error(error_msg):
+                        logger.info(f"Retrying in {KAGGLE_RETRY_DELAY} seconds...")
+                        time.sleep(KAGGLE_RETRY_DELAY)
+                        continue
+                    else:
+                        return False
 
                 logger.info("Dataset downloaded successfully")
                 logger.info(f"Download output: {result.stdout}")
 
-                # Copy contents to data directory
-                return self._copy_downloaded_data(temp_path)
+                # Manual unzip for better control
+                if not self._unzip_dataset(temp_path):
+                    if attempt < KAGGLE_MAX_RETRIES:
+                        logger.info(f"Unzip failed, retrying in {KAGGLE_RETRY_DELAY} seconds...")
+                        time.sleep(KAGGLE_RETRY_DELAY)
+                        continue
+                    else:
+                        return False
 
-        except subprocess.TimeoutExpired:
-            logger.error(
-                f"Kaggle download timed out after {KAGGLE_DOWNLOAD_TIMEOUT} seconds")
-            return False
-        except Exception as e:
-            logger.error(f"Error downloading dataset: {e}")
-            return False
+                # Copy contents to data directory
+                success = self._copy_downloaded_data(temp_path)
+                return success
+
+            except subprocess.TimeoutExpired:
+                logger.error(f"Download timed out after {KAGGLE_DOWNLOAD_TIMEOUT} seconds (attempt {attempt})")
+                if attempt < KAGGLE_MAX_RETRIES:
+                    logger.info(f"Retrying in {KAGGLE_RETRY_DELAY} seconds...")
+                    time.sleep(KAGGLE_RETRY_DELAY)
+                    continue
+                else:
+                    logger.error("All download attempts failed due to timeout")
+                    return False
+            except Exception as e:
+                logger.error(f"Error downloading dataset (attempt {attempt}): {e}")
+                if attempt < KAGGLE_MAX_RETRIES:
+                    logger.info(f"Retrying in {KAGGLE_RETRY_DELAY} seconds...")
+                    time.sleep(KAGGLE_RETRY_DELAY)
+                    continue
+                else:
+                    logger.error("All download attempts failed")
+                    return False
+            finally:
+                # Cleanup temp directory
+                if use_custom_temp and temp_path and temp_path.exists():
+                    try:
+                        shutil.rmtree(temp_path)
+                        logger.info(f"Cleaned up custom temp directory: {temp_path}")
+                    except Exception as e:
+                        logger.warning(f"Failed to cleanup custom temp directory: {e}")
+                elif temp_dir_context:
+                    try:
+                        temp_dir_context.cleanup()
+                    except Exception as e:
+                        logger.warning(f"Failed to cleanup temp directory: {e}")
+
+        return False
 
     def _copy_downloaded_data(self, temp_path: Path) -> bool:
         """
@@ -372,3 +452,80 @@ class KaggleIntegration:
         except Exception as e:
             logger.error(f"Error getting dataset info: {e}")
             return None
+
+    def _is_retryable_error(self, error_msg: str) -> bool:
+        """
+        Check if the error is retryable (network issues, temporary failures)
+        
+        Args:
+            error_msg: Error message from Kaggle CLI
+            
+        Returns:
+            True if error is retryable, False otherwise
+        """
+        retryable_errors = [
+            'connection',
+            'timeout',
+            'network',
+            'temporary',
+            'rate limit',
+            'server error',
+            'service unavailable',
+            'bad gateway',
+            'gateway timeout'
+        ]
+        
+        error_lower = error_msg.lower()
+        return any(retryable in error_lower for retryable in retryable_errors)
+
+    def _unzip_dataset(self, temp_path: Path) -> bool:
+        """
+        Manually unzip the downloaded dataset for better control
+        
+        Args:
+            temp_path: Path to temporary directory containing zip file
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            # Find the zip file
+            zip_files = list(temp_path.glob("*.zip"))
+            if not zip_files:
+                logger.error("No zip file found in download directory")
+                return False
+            
+            zip_file = zip_files[0]
+            logger.info(f"Unzipping {zip_file.name} ({zip_file.stat().st_size / (1024**3):.1f} GB)")
+            
+            # Check if we have enough space for unzipped content (estimate 2x zip size)
+            zip_size_gb = zip_file.stat().st_size / (1024**3)
+            disk_usage = shutil.disk_usage(temp_path)
+            available_gb = disk_usage.free / (1024**3)
+            
+            if available_gb < zip_size_gb * 2:
+                logger.error(f"Insufficient space for unzip. Need ~{zip_size_gb * 2:.1f}GB, have {available_gb:.1f}GB")
+                return False
+            
+            # Unzip with progress logging
+            with zipfile.ZipFile(zip_file, 'r') as zip_ref:
+                total_files = len(zip_ref.infolist())
+                logger.info(f"Extracting {total_files} files...")
+                
+                for i, member in enumerate(zip_ref.infolist()):
+                    zip_ref.extract(member, temp_path)
+                    if i % 100 == 0 or i == total_files - 1:
+                        progress = (i + 1) / total_files * 100
+                        logger.info(f"Extraction progress: {progress:.1f}% ({i + 1}/{total_files})")
+            
+            # Remove the zip file to save space
+            zip_file.unlink()
+            logger.info("Dataset unzipped successfully")
+            return True
+            
+        except zipfile.BadZipFile:
+            logger.error("Downloaded file is not a valid zip file")
+            return False
+        except Exception as e:
+            logger.error(f"Error unzipping dataset: {e}")
+            return False
