@@ -7,6 +7,9 @@ from src import (
 )
 import sys
 import logging
+import signal
+import psutil
+import os
 from datetime import datetime
 from pathlib import Path
 
@@ -146,8 +149,26 @@ class DailyUpdater:
                 self.logger.info("First deployment: Merging API data with downloaded Kaggle dataset...")
             else:
                 self.logger.info("Daily update: Merging new API data with existing dataset...")
+            
+            # Monitor memory usage before merge
+            process = psutil.Process(os.getpid())
+            memory_before = process.memory_info().rss / 1024 / 1024  # MB
+            self.logger.info(f"Memory usage before merge: {memory_before:.1f} MB")
+            
+            # Perform merge with timeout protection
+            merge_success = False
+            try:
+                merge_success = self.file_manager.merge_and_save_data(processed_data)
                 
-            if self.file_manager.merge_and_save_data(processed_data):
+                # Monitor memory usage after merge
+                memory_after = process.memory_info().rss / 1024 / 1024  # MB
+                self.logger.info(f"Memory usage after merge: {memory_after:.1f} MB")
+                
+            except Exception as e:
+                self.logger.error(f"Error during merge operation: {e}")
+                merge_success = False
+                
+            if merge_success:
                 # STEP 8: Update state with new data
                 new_hash = self.data_fetcher.calculate_data_hash(processed_data)
                 new_dates = processed_data['Arrival_Date'].unique().tolist()

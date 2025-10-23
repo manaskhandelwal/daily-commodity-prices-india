@@ -163,7 +163,7 @@ class FileManager:
 
     def merge_and_save_data(self, new_data: pd.DataFrame) -> bool:
         """
-        Merge new data with existing current year data and save
+        Memory-optimized merge of new data with existing current year data
 
         Args:
             new_data: New DataFrame to merge
@@ -174,38 +174,52 @@ class FileManager:
         try:
             csv_file, parquet_file = self.get_current_year_files()
 
-            # Clean and validate new data first
+            # Clean and validate new data first (small dataset)
+            logger.info(f"Cleaning new API data ({len(new_data)} records)...")
             new_data = self.validate_and_clean_data(new_data)
 
             # Load existing data
             existing_data = self.load_current_year_data()
 
             if existing_data is not None:
-                # Merge with existing data
-                combined_data = pd.concat(
-                    [existing_data, new_data], ignore_index=True)
-
-                # Apply comprehensive cleaning and validation to combined data
-                combined_data = self.validate_and_clean_data(combined_data)
+                logger.info(f"Merging with existing data ({len(existing_data)} records)...")
+                
+                # Memory-optimized merge: avoid cleaning the large existing dataset
+                # Only clean the new data and do minimal processing on combined data
+                combined_data = pd.concat([existing_data, new_data], ignore_index=True)
+                
+                # Only perform essential operations on the combined dataset
+                logger.info("Performing essential deduplication and sorting...")
+                
+                # Remove duplicates based on key columns (memory efficient)
+                key_columns = ['Arrival_Date', 'State', 'District', 'Market', 'Commodity', 'Variety', 'Grade']
+                available_key_columns = [col for col in key_columns if col in combined_data.columns]
+                
+                if available_key_columns:
+                    initial_count = len(combined_data)
+                    combined_data = combined_data.drop_duplicates(subset=available_key_columns, keep='last')
+                    duplicates_removed = initial_count - len(combined_data)
+                    if duplicates_removed > 0:
+                        logger.info(f"Removed {duplicates_removed:,} duplicate rows")
+                
+                # Sort by date (memory efficient)
+                combined_data['Arrival_Date'] = pd.to_datetime(combined_data['Arrival_Date'], errors='coerce')
+                combined_data = combined_data.dropna(subset=['Arrival_Date'])
+                combined_data = combined_data.sort_values('Arrival_Date')
+                combined_data['Arrival_Date'] = combined_data['Arrival_Date'].dt.strftime('%Y-%m-%d')
+                
             else:
+                logger.info("No existing data found, using cleaned new data...")
                 combined_data = new_data.copy()
 
-            # Sort by date
-            combined_data['Arrival_Date'] = pd.to_datetime(
-                combined_data['Arrival_Date'])
-            combined_data = combined_data.sort_values('Arrival_Date')
-            combined_data['Arrival_Date'] = combined_data['Arrival_Date'].dt.strftime(
-                '%Y-%m-%d')
-
-            # Save CSV file
+            # Save files with progress logging
+            logger.info(f"Saving {len(combined_data)} records to CSV...")
             combined_data.to_csv(csv_file, index=False)
-            logger.info(
-                f"Saved {len(combined_data)} records to {csv_file.name}")
+            logger.info(f"✅ Saved CSV: {csv_file.name}")
 
-            # Save Parquet file
+            logger.info(f"Saving {len(combined_data)} records to Parquet...")
             combined_data.to_parquet(parquet_file, index=False)
-            logger.info(
-                f"Saved {len(combined_data)} records to {parquet_file.name}")
+            logger.info(f"✅ Saved Parquet: {parquet_file.name}")
 
             return True
 
@@ -339,6 +353,37 @@ class FileManager:
             files_info['total_parquet_size'] += size
 
         return files_info
+
+    def validate_and_clean_data_light(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Lightweight data validation for large datasets - minimal operations only
+
+        Args:
+            df: DataFrame to validate and clean
+
+        Returns:
+            Lightly cleaned DataFrame
+        """
+        logger.info(f"Performing lightweight validation on {len(df)} records...")
+
+        # Only essential operations for large datasets
+        initial_count = len(df)
+
+        # Remove rows with missing critical fields
+        critical_fields = ['Arrival_Date', 'State', 'District', 'Market', 'Commodity']
+        df = df.dropna(subset=critical_fields)
+
+        # Basic date validation
+        if 'Arrival_Date' in df.columns:
+            df['Arrival_Date'] = pd.to_datetime(df['Arrival_Date'], errors='coerce')
+            df = df.dropna(subset=['Arrival_Date'])
+            df['Arrival_Date'] = df['Arrival_Date'].dt.strftime('%Y-%m-%d')
+
+        final_count = len(df)
+        if initial_count != final_count:
+            logger.info(f"Lightweight validation: {initial_count} → {final_count} records")
+
+        return df
 
     def validate_and_clean_data(self, df: pd.DataFrame) -> pd.DataFrame:
         """
