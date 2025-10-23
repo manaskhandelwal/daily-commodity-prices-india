@@ -9,7 +9,6 @@ services:
       - KAGGLE_USERNAME=${KAGGLE_USERNAME}
       - KAGGLE_KEY=${KAGGLE_KEY}
       - KAGGLE_DATASET=${KAGGLE_DATASET}
-      - RUN_INITIAL_UPDATE=true  # Set to false to skip initial run
     volumes:
       # Persistent volume for data storage
       - commodity_data:/app/data/commodity-prices

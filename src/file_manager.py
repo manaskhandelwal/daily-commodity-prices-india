@@ -54,11 +54,11 @@ def format_date_iso(date_input):
     # Handle pandas Timestamp objects
     if pd.isna(date_input):
         return date_input
-    
+
     # If it's already a pandas Timestamp, format it
     if isinstance(date_input, pd.Timestamp):
         return date_input.strftime("%Y-%m-%d")
-    
+
     # If it's a string, parse and format it
     if isinstance(date_input, str):
         try:
@@ -73,7 +73,7 @@ def format_date_iso(date_input):
             except ValueError:
                 logger.warning(f"Could not parse date: {date_input}")
                 return date_input
-    
+
     # Handle other datetime-like objects
     try:
         return pd.to_datetime(date_input).strftime("%Y-%m-%d")
@@ -87,11 +87,11 @@ def parse_date(date_input):
     # Handle pandas Timestamp objects
     if pd.isna(date_input):
         return datetime.min
-    
+
     # If it's already a pandas Timestamp, convert to datetime
     if isinstance(date_input, pd.Timestamp):
         return date_input.to_pydatetime()
-    
+
     # If it's a string, parse it
     if isinstance(date_input, str):
         try:
@@ -102,9 +102,10 @@ def parse_date(date_input):
                 # Try DD/MM/YYYY format
                 return datetime.strptime(date_input, "%d/%m/%Y")
             except ValueError:
-                logger.warning(f"Could not parse date for sorting: {date_input}")
+                logger.warning(
+                    f"Could not parse date for sorting: {date_input}")
                 return datetime.min
-    
+
     # Handle other datetime-like objects
     try:
         return pd.to_datetime(date_input).to_pydatetime()
@@ -283,7 +284,12 @@ class FileManager:
                 year_csv = self.csv_dir / f"{year}.csv"
                 year_parquet = self.parquet_dir / f"{year}.parquet"
 
-                # Save files
+                if year_csv.exists() and year_parquet.exists():
+                    logger.info(
+                        f"Historical files for {year} already exist - preserving existing data")
+                    continue
+
+                # Only save files for years that don't already exist
                 year_data.to_csv(year_csv, index=False)
                 year_data.to_parquet(year_parquet, index=False)
 
@@ -334,60 +340,6 @@ class FileManager:
 
         return files_info
 
-    def cleanup_old_files(self, keep_years: int = 5) -> bool:
-        """
-        Clean up old files beyond the specified number of years
-
-        Args:
-            keep_years: Number of recent years to keep
-
-        Returns:
-            True if successful, False otherwise
-        """
-        try:
-            current_year = datetime.now().year
-            cutoff_year = current_year - keep_years
-
-            logger.info(f"Cleaning up files older than {cutoff_year}")
-
-            deleted_count = 0
-
-            # Clean CSV files
-            for csv_file in self.csv_dir.glob("*.csv"):
-                try:
-                    file_year = int(csv_file.stem)
-                    if file_year < cutoff_year:
-                        csv_file.unlink()
-                        deleted_count += 1
-                        logger.info(f"Deleted old CSV file: {csv_file.name}")
-                except ValueError:
-                    # Skip files that don't have year as filename
-                    continue
-
-            # Clean Parquet files
-            for parquet_file in self.parquet_dir.glob("*.parquet"):
-                try:
-                    file_year = int(parquet_file.stem)
-                    if file_year < cutoff_year:
-                        parquet_file.unlink()
-                        deleted_count += 1
-                        logger.info(
-                            f"Deleted old Parquet file: {parquet_file.name}")
-                except ValueError:
-                    # Skip files that don't have year as filename
-                    continue
-
-            if deleted_count == 0:
-                logger.info("No old files found to clean up")
-            else:
-                logger.info(f"Cleaned up {deleted_count} old files")
-
-            return True
-
-        except Exception as e:
-            logger.error(f"Error cleaning up old files: {e}")
-            return False
-
     def validate_and_clean_data(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         Enhanced data validation and cleaning matching transform_data.py standards
@@ -399,94 +351,109 @@ class FileManager:
             Cleaned and validated DataFrame
         """
         logger.info("Performing enhanced data validation and cleaning...")
-        
+
         initial_count = len(df)
-        
+
         # Remove rows with missing critical fields
-        critical_fields = ['Arrival_Date', 'State', 'District', 'Market', 'Commodity']
+        critical_fields = ['Arrival_Date', 'State',
+                           'District', 'Market', 'Commodity']
         df = df.dropna(subset=critical_fields)
-        
+
         # Clean string fields using transform_data.py logic
-        string_fields = ['State', 'District', 'Market', 'Commodity', 'Variety', 'Grade']
+        string_fields = ['State', 'District',
+                         'Market', 'Commodity', 'Variety', 'Grade']
         for field in string_fields:
             if field in df.columns:
                 df[field] = df[field].apply(clean_string_field)
-        logger.info(f"Cleaned string fields: {', '.join([f for f in string_fields if f in df.columns])}")
-        
+        logger.info(
+            f"Cleaned string fields: {', '.join([f for f in string_fields if f in df.columns])}")
+
         # Clean price fields using transform_data.py logic
         price_fields = ['Min_Price', 'Max_Price', 'Modal_Price']
         for field in price_fields:
             if field in df.columns:
                 df[field] = df[field].apply(clean_price_field)
-        logger.info(f"Cleaned price fields: {', '.join([f for f in price_fields if f in df.columns])}")
-        
+        logger.info(
+            f"Cleaned price fields: {', '.join([f for f in price_fields if f in df.columns])}")
+
         # Format dates to ISO 8601 standard using transform_data.py logic
         if 'Arrival_Date' in df.columns:
             df['Arrival_Date'] = df['Arrival_Date'].apply(format_date_iso)
             logger.info("Converted dates to ISO 8601 format (YYYY-MM-DD)")
-        
+
         # Remove rows with invalid dates after formatting
         try:
-            df['Arrival_Date'] = pd.to_datetime(df['Arrival_Date'], errors='coerce')
+            df['Arrival_Date'] = pd.to_datetime(
+                df['Arrival_Date'], errors='coerce')
             df = df.dropna(subset=['Arrival_Date'])
         except Exception as e:
             logger.warning(f"Date validation error: {e}")
-        
+
         # Remove rows with invalid price data (all price fields are null or zero)
-        available_price_fields = [col for col in price_fields if col in df.columns]
-        
+        available_price_fields = [
+            col for col in price_fields if col in df.columns]
+
         if available_price_fields:
             # Convert price fields to numeric
             for col in available_price_fields:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
-            
+
             # Remove rows where all price fields are null or zero
             price_mask = df[available_price_fields].notna().any(axis=1) & \
-                        (df[available_price_fields] > 0).any(axis=1)
+                (df[available_price_fields] > 0).any(axis=1)
             df = df[price_mask]
-        
+
         # Remove duplicate records based on key columns (matching transform_data.py)
-        key_columns = ['Arrival_Date', 'State', 'District', 'Market', 'Commodity', 'Variety', 'Grade']
-        available_key_columns = [col for col in key_columns if col in df.columns]
-        
+        key_columns = ['Arrival_Date', 'State', 'District',
+                       'Market', 'Commodity', 'Variety', 'Grade']
+        available_key_columns = [
+            col for col in key_columns if col in df.columns]
+
         if available_key_columns:
             # Remove duplicates based on key columns, keeping the first occurrence
             duplicate_count_before = len(df)
             df = df.drop_duplicates(subset=available_key_columns, keep='first')
             duplicates_removed = duplicate_count_before - len(df)
             if duplicates_removed > 0:
-                logger.info(f"Removed {duplicates_removed:,} duplicate rows based on key columns: {', '.join(available_key_columns)}")
+                logger.info(
+                    f"Removed {duplicates_removed:,} duplicate rows based on key columns: {', '.join(available_key_columns)}")
             else:
                 logger.info("No duplicates found based on key columns")
-        
+
         # Parse dates for sorting (matching transform_data.py)
         df['Arrival_DateTime'] = df['Arrival_Date'].apply(parse_date)
-        
+
         # Sort by date first, then by state, then by other fields (matching transform_data.py)
-        sort_columns = ['Arrival_DateTime', 'State', 'District', 'Market', 'Commodity']
-        available_sort_columns = [col for col in sort_columns if col in df.columns]
+        sort_columns = ['Arrival_DateTime', 'State',
+                        'District', 'Market', 'Commodity']
+        available_sort_columns = [
+            col for col in sort_columns if col in df.columns]
         df = df.sort_values(available_sort_columns)
-        
+
         # Remove the temporary datetime column
         df = df.drop('Arrival_DateTime', axis=1)
-        
+
         # Final validation: Ensure no duplicates remain (matching transform_data.py)
         if available_key_columns:
             duplicate_count = df.duplicated(subset=available_key_columns).sum()
             if duplicate_count > 0:
-                logger.warning(f"WARNING: {duplicate_count} duplicates still found! Removing them now...")
-                df = df.drop_duplicates(subset=available_key_columns, keep='first')
+                logger.warning(
+                    f"WARNING: {duplicate_count} duplicates still found! Removing them now...")
+                df = df.drop_duplicates(
+                    subset=available_key_columns, keep='first')
             else:
                 logger.info("Final validation: No duplicates found")
-        
+
         # Data quality checks
         final_count = len(df)
         removed_count = initial_count - final_count
-        
+
         if removed_count > 0:
-            logger.info(f"Data validation removed {removed_count} invalid/duplicate records")
-            logger.info(f"Validation summary: {initial_count} → {final_count} records (sorted by date and state)")
-        
+            logger.info(
+                f"Data validation removed {removed_count} invalid/duplicate records")
+            logger.info(
+                f"Validation summary: {initial_count} → {final_count} records (sorted by date and state)")
+
         return df
 
     def get_data_quality_report(self, df: pd.DataFrame) -> dict:
@@ -506,10 +473,11 @@ class FileManager:
             'unique_values': {},
             'price_statistics': {}
         }
-        
+
         # Date range analysis
         if 'Arrival_Date' in df.columns:
-            df['Arrival_Date'] = pd.to_datetime(df['Arrival_Date'], errors='coerce')
+            df['Arrival_Date'] = pd.to_datetime(
+                df['Arrival_Date'], errors='coerce')
             valid_dates = df['Arrival_Date'].dropna()
             if not valid_dates.empty:
                 report['date_range'] = {
@@ -517,7 +485,7 @@ class FileManager:
                     'latest': valid_dates.max().strftime('%Y-%m-%d'),
                     'unique_dates': valid_dates.nunique()
                 }
-        
+
         # Missing data analysis
         for col in df.columns:
             missing_count = df[col].isna().sum()
@@ -526,13 +494,14 @@ class FileManager:
                     'count': int(missing_count),
                     'percentage': round((missing_count / len(df)) * 100, 2)
                 }
-        
+
         # Unique values for key categorical fields
-        categorical_fields = ['State', 'District', 'Market', 'Commodity', 'Variety', 'Grade']
+        categorical_fields = ['State', 'District',
+                              'Market', 'Commodity', 'Variety', 'Grade']
         for field in categorical_fields:
             if field in df.columns:
                 report['unique_values'][field] = int(df[field].nunique())
-        
+
         # Price statistics
         price_fields = ['Min_Price', 'Max_Price', 'Modal_Price']
         for field in price_fields:
@@ -545,5 +514,5 @@ class FileManager:
                         'mean': round(float(price_data.mean()), 2),
                         'median': round(float(price_data.median()), 2)
                     }
-        
+
         return report

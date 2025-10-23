@@ -39,9 +39,13 @@ PRICE_COLUMNS = ['Min_Price', 'Max_Price', 'Modal_Price']
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
 
 
-def validate_config():
-    """Validate required configuration"""
-    if not API_KEY:
+def validate_config(seeding_mode: bool = False):
+    """Validate required configuration
+
+    Args:
+        seeding_mode: If True, skip API_KEY validation for initial dataset download
+    """
+    if not seeding_mode and not API_KEY:
         raise ValueError("API_KEY environment variable is required")
 
     return True

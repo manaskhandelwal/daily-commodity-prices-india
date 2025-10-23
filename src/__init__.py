@@ -8,14 +8,13 @@ from .data_fetcher import DataFetcher
 from .file_manager import FileManager
 from .kaggle_integration import KaggleIntegration
 from .state_manager import StateManager
-
-__version__ = "2.0.0"
-__author__ = "Daily Commodity Prices India Team"
+from .seeder import DataSeeder
 
 __all__ = [
     'DataFetcher',
     'FileManager',
     'KaggleIntegration',
     'StateManager',
+    'DataSeeder',
     'validate_config'
 ]

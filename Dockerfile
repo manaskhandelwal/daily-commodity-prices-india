@@ -43,11 +43,9 @@ RUN echo '#!/bin/bash\n\
 # Start cron daemon\n\
 service cron start\n\
 \n\
-# Run initial update if requested\n\
-if [ "$RUN_INITIAL_UPDATE" = "true" ]; then\n\
-    echo "Running initial update..."\n\
-    cd /app && python daily_update.py\n\
-fi\n\
+# Always run initial update on first startup to handle seeding\n\
+echo "Running initial update (includes seeding if needed)..."\n\
+cd /app && python daily_update.py\n\
 \n\
 # Keep container running and show logs\n\
 echo "Cron daemon started. Daily updates scheduled for 11:59 PM."\n\

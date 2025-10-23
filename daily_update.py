@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 
-from src.config import LOG_LEVEL, DATA_DIR
+from src.config import LOG_LEVEL, DATA_DIR, validate_config
 from src import (
     DataFetcher, FileManager, KaggleIntegration,
-    StateManager, validate_config
+    StateManager, DataSeeder
 )
 import sys
 import logging
@@ -30,22 +30,32 @@ class DailyUpdater:
     """Main orchestrator class using modular components"""
 
     def __init__(self):
-        self.logger = setup_logging()
-
-        # Validate configuration
-        try:
-            validate_config()
-        except ValueError as e:
-            self.logger.error(f"Configuration error: {e}")
-            sys.exit(1)
-
-        # Initialize components
-        self.data_fetcher = DataFetcher()
+        """Initialize the daily updater with all components"""
+        self.logger = self.setup_logging()
+        
+        # Initialize core components
         self.file_manager = FileManager()
-        self.kaggle_integration = KaggleIntegration()
         self.state_manager = StateManager()
-
-        self.logger.info("DailyUpdater initialized with modular components")
+        self.seeder = DataSeeder()
+        
+        # Check if seeding is needed
+        seeding_needed = self.seeder.is_seeding_needed()
+        
+        # Validate configuration based on seeding mode
+        try:
+            validate_config(seeding_mode=seeding_needed)
+        except ValueError as e:
+            if seeding_needed:
+                self.logger.info("API_KEY not required for initial seeding")
+            else:
+                self.logger.error(f"Configuration validation failed: {e}")
+                raise
+        
+        # Initialize data_fetcher only if not in seeding mode
+        if not seeding_needed:
+            self.data_fetcher = DataFetcher()
+        else:
+            self.data_fetcher = None
 
     def is_environment_initialized(self) -> bool:
         """Check if the data environment is properly initialized"""
@@ -77,180 +87,83 @@ class DailyUpdater:
                 f"Error checking environment initialization: {e}")
             return False
 
-    def seed_environment(self) -> bool:
-        """Initialize the environment by downloading the complete dataset"""
-        self.logger.info("=" * 60)
-        self.logger.info("SEEDING MODE: Initializing data environment")
-        self.logger.info("=" * 60)
 
-        try:
-            # Check Kaggle configuration
-            if not self.kaggle_integration.check_kaggle_config():
-                self.logger.error("Kaggle configuration check failed")
-                return False
-
-            # Download and extract dataset
-            if not self.kaggle_integration.download_dataset():
-                self.logger.error("Failed to download and extract dataset")
-                return False
-
-            # Copy dataset-metadata.json to data directory
-            self.kaggle_integration._copy_metadata_file()
-            self.logger.info("Metadata file copied")
-
-            # Verify the environment is now properly initialized
-            if not self.is_environment_initialized():
-                self.logger.error(
-                    "Environment still not initialized after seeding")
-                return False
-
-            # Initialize state
-            self.state_manager.reset_state()
-            self.state_manager.mark_initialization_complete()
-
-            self.logger.info("Environment seeding completed successfully")
-            return True
-
-        except Exception as e:
-            self.logger.error(f"Failed to seed environment: {e}")
-            return False
 
     def run(self):
-        """Main execution method with self-initialization capability"""
-        self.logger.info("=" * 60)
-        self.logger.info("Daily Commodity Prices Update - Starting")
-        self.logger.info(f"Timestamp: {datetime.now().isoformat()}")
-        self.logger.info("=" * 60)
-
+        """Main execution method with built-in initialization"""
         try:
-            # Step 0: Check if environment is initialized
-            self.logger.info("Step 0: Checking environment initialization...")
+            self.logger.info("=" * 60)
+            self.logger.info("DAILY COMMODITY PRICES UPDATER STARTED")
+            self.logger.info("=" * 60)
 
-            if not self.is_environment_initialized():
-                self.logger.info(
-                    "Environment not initialized. Entering seeding mode...")
+            # Check if environment needs seeding
+            if self.seeder.is_seeding_needed():
+                self.logger.info("Environment not initialized. Starting seeding process...")
+                
+                if not self.seeder.seed_data():
+                    self.logger.error("Failed to seed environment")
+                    return False
+                
+                # Now initialize data_fetcher after successful seeding
+                try:
+                    validate_config(seeding_mode=False)  # Require API_KEY now
+                    self.data_fetcher = DataFetcher()
+                except ValueError as e:
+                    self.logger.error(f"API_KEY required for daily operations: {e}")
+                    return False
 
-                if not self.seed_environment():
-                    self.logger.error(
-                        "Failed to initialize environment. Exiting.")
-                    return
+            # Proceed with daily update
+            self.logger.info("Starting daily data update process...")
 
-                self.logger.info(
-                    "Environment successfully initialized. Proceeding with normal operation...")
-            else:
-                self.logger.info(
-                    "Environment already initialized. Proceeding with daily update...")
-
-            # Step 1: Fetch latest data
-            self.logger.info("Step 1: Fetching latest data from API...")
+            # Load current state
             state = self.state_manager.load_state()
+            last_hash = state.get('last_data_hash')
+            processed_dates = state.get('processed_dates', [])
 
+            # Fetch latest data
+            self.logger.info("Fetching latest data from API...")
             raw_data = self.data_fetcher.fetch_latest_data()
-            if raw_data is None or raw_data.empty:
-                self.logger.info("No new data fetched from API")
-                # Still upload current dataset even if no new data
-                self.logger.info(
-                    "Proceeding to upload current dataset to Kaggle...")
-                if self.kaggle_integration.upload_dataset():
-                    self.state_manager.mark_successful_upload()
-                    self.logger.info("Dataset upload completed successfully")
-                else:
-                    self.logger.error("Dataset upload failed")
-                return
 
-            # Step 2: Clean and process data
-            self.logger.info("Step 2: Cleaning and processing data...")
-            cleaned_data = self.data_fetcher.clean_and_process_data(raw_data)
+            if raw_data is None:
+                self.logger.warning("No data fetched from API")
+                return False
 
-            # Step 2.1: Enhanced data validation and cleaning
-            self.logger.info("Step 2.1: Performing enhanced data validation...")
-            validated_data = self.file_manager.validate_and_clean_data(cleaned_data)
-            
-            # Step 2.2: Generate data quality report
-            quality_report = self.file_manager.get_data_quality_report(validated_data)
-            self.logger.info(f"Data quality report: {quality_report}")
+            # Clean and process data
+            self.logger.info("Processing and cleaning data...")
+            processed_data = self.data_fetcher.clean_and_process_data(raw_data)
 
-            if validated_data.empty:
-                self.logger.info("No data remaining after validation and cleaning")
-                # Still upload current dataset even if no new data after cleaning
-                self.logger.info(
-                    "Proceeding to upload current dataset to Kaggle...")
-                if self.kaggle_integration.upload_dataset():
-                    self.state_manager.mark_successful_upload()
-                    self.logger.info("Dataset upload completed successfully")
-                else:
-                    self.logger.error("Dataset upload failed")
-                return
+            if processed_data is None or processed_data.empty:
+                self.logger.warning("No valid data after processing")
+                return False
 
-            # Step 3: Check for new data
-            self.logger.info("Step 3: Checking for new data...")
-            if not self.data_fetcher.is_new_data(
-                validated_data,
-                state.get('last_data_hash'),
-                state.get('processed_dates')
-            ):
-                self.logger.info("No new data detected, skipping processing")
-                # Still upload current dataset
-                self.logger.info(
-                    "Proceeding to upload current dataset to Kaggle...")
-                if self.kaggle_integration.upload_dataset():
-                    self.state_manager.mark_successful_upload()
-                    self.logger.info("Dataset upload completed successfully")
-                else:
-                    self.logger.error("Dataset upload failed")
-                return
+            # Check for new data
+            if not self.data_fetcher.is_new_data(processed_data, last_hash, processed_dates):
+                self.logger.info("No new data to process")
+                return True
 
-            # Step 4: Handle year rollover if needed
-            self.logger.info("Step 4: Checking for year rollover...")
-            if self.file_manager.check_year_rollover():
-                self.logger.info("Year rollover detected, processing...")
-                if not self.file_manager.handle_year_rollover():
-                    self.logger.error("Failed to handle year rollover")
-                    return
-                self.logger.info("Year rollover completed successfully")
-
-            # Step 5: Merge and save data
-            self.logger.info("Step 5: Merging and saving data...")
-            if not self.file_manager.merge_and_save_data(validated_data):
+            # Merge and save data
+            self.logger.info("Merging and saving new data...")
+            if self.file_manager.merge_and_save_data(processed_data):
+                # Update state
+                new_hash = self.data_fetcher.calculate_data_hash(processed_data)
+                new_dates = processed_data['Arrival_Date'].unique().tolist()
+                
+                self.state_manager.update_state(
+                    last_data_hash=new_hash,
+                    processed_dates=list(set(processed_dates + new_dates))
+                )
+                
+                self.logger.info("=" * 60)
+                self.logger.info("DAILY UPDATE COMPLETED SUCCESSFULLY")
+                self.logger.info("=" * 60)
+                return True
+            else:
                 self.logger.error("Failed to merge and save data")
-                return
-
-            # Step 6: Update state
-            self.logger.info("Step 6: Updating state...")
-            new_hash = self.data_fetcher.calculate_data_hash(validated_data)
-            # Convert Arrival_Date to string format for state management
-            new_dates = [str(date)[:10] for date in validated_data['Arrival_Date'].unique()]
-
-            # Update state using state manager
-            self.state_manager.update_data_hash(new_hash)
-            self.state_manager.update_processed_dates(new_dates)
-            self.state_manager.increment_records_processed(len(validated_data))
-
-            # Step 7: Upload to Kaggle
-            self.logger.info("Step 7: Uploading dataset to Kaggle...")
-            if not self.kaggle_integration.upload_dataset():
-                self.logger.error("Failed to upload dataset to Kaggle")
-                return
-
-            # Mark successful upload
-            self.state_manager.mark_successful_upload()
-
-            self.logger.info("=== DAILY UPDATE COMPLETED SUCCESSFULLY ===")
-            self.logger.info(f"Processed {len(validated_data)} new records")
-
-            # Get updated state for logging
-            updated_state = self.state_manager.load_state()
-            self.logger.info(
-                f"Total records processed to date: {updated_state.get('total_records_processed', 0)}")
+                return False
 
         except Exception as e:
-            self.logger.error(f"Unexpected error during daily update: {e}")
-            raise
-
-        finally:
-            self.logger.info("=" * 60)
-            self.logger.info("Daily Commodity Prices Update - Finished")
-            self.logger.info("=" * 60)
+            self.logger.error(f"Daily update failed: {e}")
+            return False
 
 
 def main():
