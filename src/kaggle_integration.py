@@ -4,17 +4,17 @@ Handles Kaggle dataset downloads and uploads with proper error handling
 """
 
 import json
+import logging
 import os
 import shutil
 import subprocess
 import tempfile
 import time
-import shutil
 import zipfile
 from pathlib import Path
 from typing import Optional
 
-from config import (
+from .config import (
     KAGGLE_USERNAME, KAGGLE_KEY, KAGGLE_DATASET,
     KAGGLE_DOWNLOAD_TIMEOUT, KAGGLE_UPLOAD_TIMEOUT,
     KAGGLE_MAX_RETRIES, KAGGLE_RETRY_DELAY, KAGGLE_TEMP_DIR,
