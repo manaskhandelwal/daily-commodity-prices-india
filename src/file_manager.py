@@ -1,10 +1,11 @@
 """
 File manager module for CSV and Parquet operations
-Handles monthly file management, merging, and rollover operations
+Handles yearly file management, merging, and rollover operations
 """
 
 import logging
 import pandas as pd
+import re
 from pathlib import Path
 from datetime import datetime
 from typing import Tuple, Optional
@@ -12,6 +13,70 @@ from typing import Tuple, Optional
 from .config import DATA_DIR, CSV_DIR, PARQUET_DIR
 
 logger = logging.getLogger(__name__)
+
+
+def clean_string_field(text):
+    """Clean string fields by fixing spacing issues and bracket formatting."""
+    if pd.isna(text) or not isinstance(text, str):
+        return text
+
+    # Remove extra whitespace and strip
+    text = text.strip()
+
+    # Replace multiple spaces with single space
+    text = re.sub(r'\s+', ' ', text)
+
+    # Add space before opening bracket if missing
+    text = re.sub(r'([a-zA-Z0-9])(\()', r'\1 \2', text)
+
+    return text
+
+
+def clean_price_field(price):
+    """Remove unnecessary decimal points (.0) from price fields."""
+    if pd.isna(price):
+        return price
+
+    # Convert to float first to handle string inputs
+    try:
+        price_float = float(price)
+        # If it's a whole number, return as integer
+        if price_float == int(price_float):
+            return int(price_float)
+        else:
+            return price_float
+    except (ValueError, TypeError):
+        return price
+
+
+def format_date_iso(date_str):
+    """Parse date string and return in ISO 8601 format (YYYY-MM-DD)."""
+    try:
+        # Parse DD/MM/YYYY format
+        dt = datetime.strptime(date_str, "%d/%m/%Y")
+        return dt.strftime("%Y-%m-%d")
+    except ValueError:
+        try:
+            # Try if already in YYYY-MM-DD format
+            dt = datetime.strptime(date_str, "%Y-%m-%d")
+            return date_str  # Already in correct format
+        except ValueError:
+            logger.warning(f"Could not parse date: {date_str}")
+            return date_str
+
+
+def parse_date(date_str):
+    """Parse date string for sorting purposes."""
+    try:
+        # Try YYYY-MM-DD format first
+        return datetime.strptime(date_str, "%Y-%m-%d")
+    except ValueError:
+        try:
+            # Try DD/MM/YYYY format
+            return datetime.strptime(date_str, "%d/%m/%Y")
+        except ValueError:
+            logger.warning(f"Could not parse date for sorting: {date_str}")
+            return datetime.min
 
 
 class FileManager:
@@ -74,6 +139,9 @@ class FileManager:
         try:
             csv_file, parquet_file = self.get_current_year_files()
 
+            # Clean and validate new data first
+            new_data = self.validate_and_clean_data(new_data)
+
             # Load existing data
             existing_data = self.load_current_year_data()
 
@@ -82,19 +150,8 @@ class FileManager:
                 combined_data = pd.concat(
                     [existing_data, new_data], ignore_index=True)
 
-                # Remove duplicates
-                from .config import KEY_COLUMNS
-                available_key_columns = [
-                    col for col in KEY_COLUMNS if col in combined_data.columns]
-
-                initial_count = len(combined_data)
-                combined_data = combined_data.drop_duplicates(
-                    subset=available_key_columns, keep='last')
-                final_count = len(combined_data)
-
-                if initial_count > final_count:
-                    logger.info(
-                        f"Removed {initial_count - final_count} duplicate records during merge")
+                # Apply comprehensive cleaning and validation to combined data
+                combined_data = self.validate_and_clean_data(combined_data)
             else:
                 combined_data = new_data.copy()
 
@@ -184,6 +241,9 @@ class FileManager:
                 year_data = year_data.drop('year', axis=1)
                 year_data['Arrival_Date'] = year_data['Arrival_Date'].dt.strftime(
                     '%Y-%m-%d')
+
+                # Apply comprehensive cleaning and validation to year data
+                year_data = self.validate_and_clean_data(year_data)
 
                 # Create year-specific files
                 year_csv = self.csv_dir / f"{year}.csv"
@@ -296,7 +356,7 @@ class FileManager:
 
     def validate_and_clean_data(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Enhanced data validation and cleaning inspired by testing directory patterns
+        Enhanced data validation and cleaning matching transform_data.py standards
 
         Args:
             df: DataFrame to validate and clean
@@ -312,7 +372,26 @@ class FileManager:
         critical_fields = ['Arrival_Date', 'State', 'District', 'Market', 'Commodity']
         df = df.dropna(subset=critical_fields)
         
-        # Remove rows with invalid dates
+        # Clean string fields using transform_data.py logic
+        string_fields = ['State', 'District', 'Market', 'Commodity', 'Variety', 'Grade']
+        for field in string_fields:
+            if field in df.columns:
+                df[field] = df[field].apply(clean_string_field)
+        logger.info(f"Cleaned string fields: {', '.join([f for f in string_fields if f in df.columns])}")
+        
+        # Clean price fields using transform_data.py logic
+        price_fields = ['Min_Price', 'Max_Price', 'Modal_Price']
+        for field in price_fields:
+            if field in df.columns:
+                df[field] = df[field].apply(clean_price_field)
+        logger.info(f"Cleaned price fields: {', '.join([f for f in price_fields if f in df.columns])}")
+        
+        # Format dates to ISO 8601 standard using transform_data.py logic
+        if 'Arrival_Date' in df.columns:
+            df['Arrival_Date'] = df['Arrival_Date'].apply(format_date_iso)
+            logger.info("Converted dates to ISO 8601 format (YYYY-MM-DD)")
+        
+        # Remove rows with invalid dates after formatting
         try:
             df['Arrival_Date'] = pd.to_datetime(df['Arrival_Date'], errors='coerce')
             df = df.dropna(subset=['Arrival_Date'])
@@ -320,7 +399,6 @@ class FileManager:
             logger.warning(f"Date validation error: {e}")
         
         # Remove rows with invalid price data (all price fields are null or zero)
-        price_fields = ['Min_Price', 'Max_Price', 'Modal_Price']
         available_price_fields = [col for col in price_fields if col in df.columns]
         
         if available_price_fields:
@@ -333,12 +411,39 @@ class FileManager:
                         (df[available_price_fields] > 0).any(axis=1)
             df = df[price_mask]
         
-        # Remove duplicate records based on key columns (more comprehensive)
+        # Remove duplicate records based on key columns (matching transform_data.py)
         key_columns = ['Arrival_Date', 'State', 'District', 'Market', 'Commodity', 'Variety', 'Grade']
         available_key_columns = [col for col in key_columns if col in df.columns]
         
         if available_key_columns:
+            # Remove duplicates based on key columns, keeping the first occurrence
+            duplicate_count_before = len(df)
             df = df.drop_duplicates(subset=available_key_columns, keep='first')
+            duplicates_removed = duplicate_count_before - len(df)
+            if duplicates_removed > 0:
+                logger.info(f"Removed {duplicates_removed:,} duplicate rows based on key columns: {', '.join(available_key_columns)}")
+            else:
+                logger.info("No duplicates found based on key columns")
+        
+        # Parse dates for sorting (matching transform_data.py)
+        df['Arrival_DateTime'] = df['Arrival_Date'].apply(parse_date)
+        
+        # Sort by date first, then by state, then by other fields (matching transform_data.py)
+        sort_columns = ['Arrival_DateTime', 'State', 'District', 'Market', 'Commodity']
+        available_sort_columns = [col for col in sort_columns if col in df.columns]
+        df = df.sort_values(available_sort_columns)
+        
+        # Remove the temporary datetime column
+        df = df.drop('Arrival_DateTime', axis=1)
+        
+        # Final validation: Ensure no duplicates remain (matching transform_data.py)
+        if available_key_columns:
+            duplicate_count = df.duplicated(subset=available_key_columns).sum()
+            if duplicate_count > 0:
+                logger.warning(f"WARNING: {duplicate_count} duplicates still found! Removing them now...")
+                df = df.drop_duplicates(subset=available_key_columns, keep='first')
+            else:
+                logger.info("Final validation: No duplicates found")
         
         # Data quality checks
         final_count = len(df)
@@ -346,7 +451,7 @@ class FileManager:
         
         if removed_count > 0:
             logger.info(f"Data validation removed {removed_count} invalid/duplicate records")
-            logger.info(f"Validation summary: {initial_count} → {final_count} records")
+            logger.info(f"Validation summary: {initial_count} → {final_count} records (sorted by date and state)")
         
         return df
 
