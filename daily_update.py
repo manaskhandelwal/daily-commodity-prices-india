@@ -148,10 +148,10 @@ class DailyUpdater:
                 new_hash = self.data_fetcher.calculate_data_hash(processed_data)
                 new_dates = processed_data['Arrival_Date'].unique().tolist()
                 
-                self.state_manager.update_state(
-                    last_data_hash=new_hash,
-                    processed_dates=list(set(processed_dates + new_dates))
-                )
+                # Update state with new data
+                self.state_manager.update_data_hash(new_hash)
+                self.state_manager.update_processed_dates(new_dates)
+                self.state_manager.increment_records_processed(len(processed_data))
                 
                 self.logger.info("=" * 60)
                 self.logger.info("DAILY UPDATE COMPLETED SUCCESSFULLY")
