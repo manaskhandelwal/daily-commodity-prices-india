@@ -11,6 +11,14 @@ echo "Timestamp: $(date)"
 # Ensure log directory exists
 mkdir -p /app/logs
 
+# Install cron jobs
+echo "Installing cron jobs..."
+echo "0 19 * * * root cd /app && PYTHONPATH=/app python daily_update.py >> /app/logs/cron.log 2>&1" > /etc/cron.d/daily-commodity-update
+echo "59 23 * * * root cd /app && PYTHONPATH=/app python daily_update.py >> /app/logs/cron.log 2>&1" >> /etc/cron.d/daily-commodity-update
+echo "" >> /etc/cron.d/daily-commodity-update
+chmod 0644 /etc/cron.d/daily-commodity-update
+crontab /etc/cron.d/daily-commodity-update
+
 # Start cron daemon
 echo "Starting cron daemon..."
 service cron start
