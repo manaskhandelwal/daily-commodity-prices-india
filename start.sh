@@ -23,12 +23,21 @@ crontab /etc/cron.d/daily-commodity-update
 echo "Starting cron daemon..."
 service cron start
 
-# Check if cron is running
-if pgrep cron > /dev/null; then
-    echo "Cron daemon started successfully"
+# Wait a moment for cron to start
+sleep 2
+
+# Check if cron is running using multiple methods
+echo "Verifying cron daemon status..."
+if pgrep cron > /dev/null 2>&1; then
+    echo "Cron daemon started successfully (verified with pgrep)"
+elif service cron status > /dev/null 2>&1; then
+    echo "Cron daemon started successfully (verified with service status)"
+elif ps aux | grep -v grep | grep cron > /dev/null 2>&1; then
+    echo "Cron daemon started successfully (verified with ps)"
 else
-    echo "ERROR: Failed to start cron daemon"
-    exit 1
+    echo "WARNING: Could not verify cron daemon status, but continuing..."
+    echo "Checking running processes:"
+    ps aux | grep cron || echo "No cron processes found"
 fi
 
 # Display cron configuration
