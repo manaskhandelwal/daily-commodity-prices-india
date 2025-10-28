@@ -1,4 +1,8 @@
-# Format: minute hour day month day_of_week user command
-# Run daily at 7:00 PM (19:00) and 11:59 PM (23:59)
-0 19 * * * root cd /app && PYTHONPATH=/app python daily_update.py >> /app/logs/cron.log 2>&1
-59 23 * * * root cd /app && PYTHONPATH=/app python daily_update.py >> /app/logs/cron.log 2>&1
+# Daily Commodity Prices Updater - Cron Configuration
+
+0 0 * * * /app/run_update.sh   # 12 AM
+0 3 * * * /app/run_update.sh   # 3 AM
+0 10 * * * /app/run_update.sh   # 10 AM
+0 15 * * * /app/run_update.sh  # 3 PM
+0 18 * * * /app/run_update.sh  # 6 PM
+0 21 * * * /app/run_update.sh  # 9 PM

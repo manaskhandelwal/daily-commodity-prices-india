@@ -1,62 +1,81 @@
 #!/bin/bash
 
-# Start script for Daily Commodity Prices Updater
-# This script handles cron daemon startup and optional initial update
+# Robust start script for Daily Commodity Prices Updater
+# This script properly handles cron daemon in Docker container
 
 set -e
 
-echo "=== Daily Commodity Prices Updater - Container Starting ==="
-echo "Timestamp: $(date)"
+# Function to log with timestamp
+log_with_timestamp() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
+}
 
-# Ensure log directory exists
+# Function to handle shutdown gracefully
+cleanup() {
+    log_with_timestamp "Received shutdown signal, stopping cron daemon..."
+    service cron stop
+    exit 0
+}
+
+# Set up signal handlers for graceful shutdown
+trap cleanup SIGTERM SIGINT
+
+log_with_timestamp "=== Daily Commodity Prices Updater - Container Starting ==="
+
+# Ensure required directories exist
 mkdir -p /app/logs
+mkdir -p /app/data/commodity-prices
 
-# Install cron jobs
-echo "Installing cron jobs..."
-echo "0 19 * * * root cd /app && PYTHONPATH=/app python daily_update.py >> /app/logs/cron.log 2>&1" > /etc/cron.d/daily-commodity-update
-echo "59 23 * * * root cd /app && PYTHONPATH=/app python daily_update.py >> /app/logs/cron.log 2>&1" >> /etc/cron.d/daily-commodity-update
-echo "" >> /etc/cron.d/daily-commodity-update
-chmod 0644 /etc/cron.d/daily-commodity-update
-crontab /etc/cron.d/daily-commodity-update
+# Make scripts executable
+chmod +x /app/run_update.sh
 
-# Start cron daemon
-echo "Starting cron daemon..."
-service cron start
-
-# Wait a moment for cron to start
-sleep 2
-
-# Check if cron is running using multiple methods
-echo "Verifying cron daemon status..."
-if pgrep cron > /dev/null 2>&1; then
-    echo "Cron daemon started successfully (verified with pgrep)"
-elif service cron status > /dev/null 2>&1; then
-    echo "Cron daemon started successfully (verified with service status)"
-elif ps aux | grep -v grep | grep cron > /dev/null 2>&1; then
-    echo "Cron daemon started successfully (verified with ps)"
+# Install cron jobs from crontab.txt
+log_with_timestamp "Installing cron jobs..."
+if [ -f "/app/crontab.txt" ]; then
+    # Install crontab for the current user (not root)
+    crontab /app/crontab.txt
+    log_with_timestamp "Cron jobs installed from crontab.txt"
 else
-    echo "WARNING: Could not verify cron daemon status, but continuing..."
-    echo "Checking running processes:"
-    ps aux | grep cron || echo "No cron processes found"
+    log_with_timestamp "ERROR: crontab.txt not found!"
+    exit 1
 fi
 
-# Display cron configuration
-echo "Current cron configuration:"
-crontab -l
+# Start cron daemon in foreground mode for Docker
+log_with_timestamp "Starting cron daemon..."
+service cron start
+
+# Verify cron is running
+sleep 3
+if pgrep cron > /dev/null 2>&1; then
+    log_with_timestamp "✅ Cron daemon started successfully"
+else
+    log_with_timestamp "❌ Failed to start cron daemon"
+    exit 1
+fi
+
+# Display current cron configuration
+log_with_timestamp "Current cron configuration:"
+crontab -l | while read line; do
+    log_with_timestamp "  $line"
+done
 
 # Run initial update if requested
 if [ "${RUN_INITIAL_UPDATE:-false}" = "true" ]; then
-    echo "Running initial update as requested..."
-    cd /app
-    python daily_update.py
-    echo "Initial update completed"
-else
-    echo "Skipping initial update (RUN_INITIAL_UPDATE not set to true)"
+    log_with_timestamp "Running initial update as requested..."
+    /app/run_update.sh
 fi
 
-echo "=== Container initialization complete ==="
-echo "Cron jobs will run daily at 7:00 PM and 11:59 PM"
-echo "Monitoring logs..."
+log_with_timestamp "Container initialization completed successfully"
+log_with_timestamp "Cron will run every 3 hours: 00:00, 03:00, 06:00, 09:00, 12:00, 15:00, 18:00, 21:00"
+log_with_timestamp "Logs will be written to: /app/logs/cron.log"
 
-# Keep container running and monitor logs
-tail -f /app/logs/daily_update.log /var/log/cron.log 2>/dev/null || tail -f /dev/null
+# Keep container running and monitor cron daemon
+log_with_timestamp "Container ready - monitoring cron daemon..."
+while true; do
+    if ! pgrep cron > /dev/null 2>&1; then
+        log_with_timestamp "❌ Cron daemon stopped unexpectedly, restarting..."
+        service cron start
+        sleep 5
+    fi
+    sleep 60  # Check every minute
+done
