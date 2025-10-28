@@ -7,3 +7,4 @@
 0 15 * * * /app/run_update.sh  # 3 PM
 0 18 * * * /app/run_update.sh  # 6 PM
 0 21 * * * /app/run_update.sh  # 9 PM
+
