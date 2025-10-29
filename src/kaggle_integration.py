@@ -246,84 +246,125 @@ class KaggleIntegration:
 
     def upload_dataset(self) -> bool:
         """
-        Upload the entire data directory to Kaggle
+        Upload the entire data directory to Kaggle with retry logic
 
         Returns:
             True if successful, False otherwise
         """
-        try:
-            logger.info(
-                f"Starting upload of dataset to Kaggle: {self.dataset}")
+        max_retries = 3
+        base_delay = 30  # Base delay in seconds
+        
+        for attempt in range(1, max_retries + 1):
+            try:
+                logger.info(
+                    f"Starting upload of dataset to Kaggle: {self.dataset} (attempt {attempt}/{max_retries})")
 
-            if not self.data_dir.exists():
-                logger.error(f"Data directory does not exist: {self.data_dir}")
-                return False
+                if not self.data_dir.exists():
+                    logger.error(f"Data directory does not exist: {self.data_dir}")
+                    return False
 
-            # Ensure metadata file exists
-            self._copy_metadata_file()
-            
-            # Verify metadata file exists in data directory
-            metadata_path = self.data_dir / "dataset-metadata.json"
-            if not metadata_path.exists():
-                logger.error(f"Metadata file not found at {metadata_path} after copying")
-                return False
-            else:
-                logger.info(f"Metadata file confirmed at {metadata_path}")
+                # Ensure metadata file exists
+                self._copy_metadata_file()
+                
+                # Verify metadata file exists in data directory
+                metadata_path = self.data_dir / "dataset-metadata.json"
+                if not metadata_path.exists():
+                    logger.error(f"Metadata file not found at {metadata_path} after copying")
+                    return False
+                else:
+                    logger.info(f"Metadata file confirmed at {metadata_path}")
 
-            # Create temporary upload directory excluding internal files
-            upload_dir = self._prepare_upload_directory()
-            if not upload_dir:
-                logger.error("Failed to prepare upload directory")
-                return False
+                # Create temporary upload directory excluding internal files
+                upload_dir = self._prepare_upload_directory()
+                if not upload_dir:
+                    logger.error("Failed to prepare upload directory")
+                    if attempt < max_retries:
+                        delay = base_delay * (2 ** (attempt - 1))
+                        logger.info(f"Retrying in {delay} seconds...")
+                        time.sleep(delay)
+                        continue
+                    return False
 
-            # Build upload command
-            cmd = [
-                'kaggle', 'datasets', 'version',
-                '--path', '.',
-                '--message', f'"Daily update - {self._get_current_timestamp()}"',
-                '--dir-mode', 'zip'
-            ]
+                # Build upload command
+                cmd = [
+                    'kaggle', 'datasets', 'version',
+                    '--path', '.',
+                    '--message', f'"Daily update - {self._get_current_timestamp()}"',
+                    '--dir-mode', 'zip'
+                ]
 
-            logger.info(f"Running upload command: {' '.join(cmd)}")
+                logger.info(f"Running upload command: {' '.join(cmd)}")
 
-            # Run command and capture output for debugging
-            result = subprocess.run(
-                cmd,
-                timeout=KAGGLE_UPLOAD_TIMEOUT,
-                cwd=str(upload_dir),
-                capture_output=True,
-                text=True
-            )
+                # Run command and capture output for debugging
+                result = subprocess.run(
+                    cmd,
+                    timeout=KAGGLE_UPLOAD_TIMEOUT,
+                    cwd=str(upload_dir),
+                    capture_output=True,
+                    text=True
+                )
 
-            # Log command output for debugging
-            if result.stdout:
-                logger.info(f"Kaggle CLI stdout: {result.stdout}")
-            if result.stderr:
-                logger.error(f"Kaggle CLI stderr: {result.stderr}")
+                # Log command output for debugging
+                if result.stdout:
+                    logger.info(f"Kaggle CLI stdout: {result.stdout}")
+                if result.stderr:
+                    logger.error(f"Kaggle CLI stderr: {result.stderr}")
 
-            if result.returncode == 0:
-                logger.info("Dataset uploaded successfully to Kaggle")
-                return True
-            else:
+                if result.returncode == 0:
+                    logger.info("Dataset uploaded successfully to Kaggle")
+                    return True
+                else:
+                    logger.error(
+                        f"Kaggle upload failed with return code: {result.returncode}")
+                    
+                    # If this is not the last attempt, wait and retry
+                    if attempt < max_retries:
+                        delay = base_delay * (2 ** (attempt - 1))
+                        logger.info(f"Upload attempt {attempt} failed. Retrying in {delay} seconds...")
+                        time.sleep(delay)
+                        continue
+                    else:
+                        logger.error(f"All {max_retries} upload attempts failed")
+                        return False
+
+            except subprocess.TimeoutExpired:
                 logger.error(
-                    f"Kaggle upload failed with return code: {result.returncode}")
-                return False
-
-        except subprocess.TimeoutExpired:
-            logger.error(
-                f"Kaggle upload timed out after {KAGGLE_UPLOAD_TIMEOUT} seconds")
-            return False
-        except Exception as e:
-            logger.error(f"Error uploading dataset: {e}")
-            return False
-        finally:
-            # Clean up temporary upload directory if it exists
-            if 'upload_dir' in locals() and upload_dir and upload_dir != self.data_dir:
-                try:
-                    shutil.rmtree(upload_dir)
-                    logger.info(f"Cleaned up temporary upload directory: {upload_dir}")
-                except Exception as e:
-                    logger.warning(f"Failed to clean up temporary directory: {e}")
+                    f"Kaggle upload timed out after {KAGGLE_UPLOAD_TIMEOUT} seconds (attempt {attempt})")
+                
+                # If this is not the last attempt, wait and retry
+                if attempt < max_retries:
+                    delay = base_delay * (2 ** (attempt - 1))
+                    logger.info(f"Upload attempt {attempt} timed out. Retrying in {delay} seconds...")
+                    time.sleep(delay)
+                    continue
+                else:
+                    logger.error(f"All {max_retries} upload attempts timed out")
+                    return False
+                    
+            except Exception as e:
+                logger.error(f"Error uploading dataset (attempt {attempt}): {e}")
+                
+                # If this is not the last attempt, wait and retry
+                if attempt < max_retries:
+                    delay = base_delay * (2 ** (attempt - 1))
+                    logger.info(f"Upload attempt {attempt} failed with error. Retrying in {delay} seconds...")
+                    time.sleep(delay)
+                    continue
+                else:
+                    logger.error(f"All {max_retries} upload attempts failed with errors")
+                    return False
+                    
+            finally:
+                # Clean up temporary upload directory if it exists
+                if 'upload_dir' in locals() and upload_dir and upload_dir != self.data_dir:
+                    try:
+                        shutil.rmtree(upload_dir)
+                        logger.info(f"Cleaned up temporary upload directory: {upload_dir}")
+                    except Exception as e:
+                        logger.warning(f"Failed to clean up temporary directory: {e}")
+        
+        # This should never be reached, but just in case
+        return False
 
     def _prepare_upload_directory(self) -> Optional[Path]:
         """
